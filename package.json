@@ -1,0 +1,26 @@
+{
+  "name": "sistema-de-ventas-ia",
+  "version": "1.0.0",
+  "description": "https://drive.google.com/drive/folders/16cRQxV90NyUMjYV9MbQbPhtzHBOVgPSF",
+  "main": "index.js",
+  "directories": {
+    "test": "tests"
+  },
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://gitlab.com/joseignaciodurandaza09/sistema-de-ventas-ia.git"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "bugs": {
+    "url": "https://gitlab.com/joseignaciodurandaza09/sistema-de-ventas-ia/issues"
+  },
+  "homepage": "https://gitlab.com/joseignaciodurandaza09/sistema-de-ventas-ia#readme",
+  "devDependencies": {
+    "cypress": "^16.2.0"
+  }
+}

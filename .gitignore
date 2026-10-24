@@ -1,0 +1,14 @@
+# Modelo local pesado
+/backend/modelo/yolo11x.pt
+
+# Variables de entorno y credenciales (se sube solo la plantilla)
+.env
+.env.*
+!.env.example
+
+# Python
+__pycache__/
+*.pyc
+
+# Logs
+*.log
