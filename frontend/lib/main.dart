@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'config/app_config.dart';
 import 'screens/login_screen.dart';
 import 'theme/app_theme.dart';
 import 'theme/theme_controller.dart';
@@ -10,7 +11,7 @@ void main() {
 class MyApp extends StatelessWidget {
   MyApp({super.key});
 
-  static const String apiBase = 'http://localhost:8000';
+  static const String apiBase = AppConfig.apiBase;
 
   @override
   Widget build(BuildContext context) {

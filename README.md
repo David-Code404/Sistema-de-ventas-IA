@@ -49,9 +49,13 @@ flutter run -d chrome --dart-define=API_BASE=https://TU-BACKEND.onrender.com
 - `CORS_ORIGINS`: la URL del frontend (o `*` mientras pruebas).
 
 **Frontend (Static Site)**
-- Compila con la URL del backend ya desplegado:
+- La web ya compilada (apuntando a `https://sistema-de-ventas-ia.onrender.com`) esta en `frontend_web/`.
+- En Render: New -> Static Site -> este repositorio, rama `main`.
+  - Build Command: `echo ok`
+  - Publish Directory: `frontend_web`
+- Si cambia la URL del backend, hay que volver a compilar y reemplazar `frontend_web/`:
   `flutter build web --release --dart-define=API_BASE=https://TU-BACKEND.onrender.com`
-- Publica la carpeta `frontend/build/web`.
+  y copiar el contenido de `frontend/build/web` a `frontend_web/`.
 
 ## Pruebas
 
