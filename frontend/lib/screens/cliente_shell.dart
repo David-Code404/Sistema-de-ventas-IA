@@ -41,6 +41,22 @@ class _ClienteShellState extends State<ClienteShell>
     );
   }
 
+  Widget _botonSalir() {
+    final color = AppColors.danger.withValues(alpha: 0.9);
+    if (MediaQuery.of(context).size.width < 600) {
+      return IconButton(
+        tooltip: 'Salir',
+        onPressed: _cerrarSesion,
+        icon: Icon(Icons.logout_rounded, size: 20, color: color),
+      );
+    }
+    return TextButton.icon(
+      onPressed: _cerrarSesion,
+      icon: Icon(Icons.logout_rounded, size: 17, color: color),
+      label: Text('Salir', style: TextStyle(color: color, fontSize: 13)),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -70,7 +86,7 @@ class _ClienteShellState extends State<ClienteShell>
           BotonCarrito(apiBase: widget.apiBase),
           BotonModoTema(),
           SizedBox(width: 4),
-          // Mi cuenta: cambiar contraseña y salir
+          // Mi cuenta: cambiar contraseña
           PopupMenuButton<String>(
             tooltip: 'Mi cuenta',
             color: AppColors.surfaceAlt,
@@ -79,8 +95,6 @@ class _ClienteShellState extends State<ClienteShell>
             onSelected: (opcion) {
               if (opcion == 'password') {
                 mostrarCambiarPassword(context, apiBase: widget.apiBase);
-              } else if (opcion == 'salir') {
-                _cerrarSesion();
               }
             },
             itemBuilder: (_) => [
@@ -92,16 +106,10 @@ class _ClienteShellState extends State<ClienteShell>
                   Text('Cambiar contraseña'),
                 ]),
               ),
-              PopupMenuItem(
-                value: 'salir',
-                child: Row(children: [
-                  Icon(Icons.logout_rounded, size: 18, color: AppColors.danger),
-                  SizedBox(width: 10),
-                  Text('Salir', style: TextStyle(color: AppColors.danger)),
-                ]),
-              ),
             ],
           ),
+          // Salir: siempre visible
+          _botonSalir(),
           SizedBox(width: 8),
         ],
         bottom: TabBar(
