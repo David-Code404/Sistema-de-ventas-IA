@@ -1,8 +1,10 @@
+import 'dart:async';
 import 'dart:convert';
 
 import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
 
+import '../models/estado_venta.dart';
 import '../models/session.dart';
 import '../theme/app_colors.dart';
 import '../widgets/bounded_content.dart';
@@ -19,31 +21,46 @@ class _EstadoPedidoScreenState extends State<EstadoPedidoScreen> {
   List<Map<String, dynamic>> _pedidos = [];
   bool    _cargando = true;
   String? _error;
+  Timer?  _timer;
+
+  /// Cada cuanto se consulta el estado de los pedidos (p. ej. si ya esta listo)
+  static const _intervalo = Duration(seconds: 15);
 
   @override
   void initState() {
     super.initState();
     _cargar();
+    _timer = Timer.periodic(_intervalo, (_) => _cargar(silencioso: true));
   }
 
-  Future<void> _cargar() async {
+  @override
+  void dispose() {
+    _timer?.cancel();
+    super.dispose();
+  }
+
+  Future<void> _cargar({bool silencioso = false}) async {
     final uid = Session.usuarioId;
     if (uid == null) {
       setState(() { _cargando = false; _error = 'Sin sesión activa.'; });
       return;
     }
-    setState(() { _cargando = true; _error = null; });
+    if (!silencioso) setState(() { _cargando = true; _error = null; });
     try {
       final resp = await http.get(
         Uri.parse('${widget.apiBase}/ventas/cliente/$uid'),
       );
       if (resp.statusCode != 200) throw Exception('Error ${resp.statusCode}');
       final lista = jsonDecode(resp.body) as List<dynamic>;
+      if (!mounted) return;
       setState(() {
         _pedidos  = lista.cast<Map<String, dynamic>>();
         _cargando = false;
+        _error    = null;
       });
     } catch (e) {
+      // En la actualizacion automatica se conserva lo que ya se ve
+      if (!mounted || (silencioso && _pedidos.isNotEmpty)) return;
       setState(() { _cargando = false; _error = 'No se pudo cargar: $e'; });
     }
   }
@@ -98,14 +115,16 @@ class _EstadoPedidoScreenState extends State<EstadoPedidoScreen> {
       ]);
     }
 
-    final activo    = _pedidos.where((p) => p['estado'] == 'en_progreso').toList();
-    final historial = _pedidos.where((p) => p['estado'] != 'en_progreso').toList();
+    // Activos: pedidos en linea sin finalizar (pendiente o listo para recoger)
+    const enCurso   = {'pendiente', 'listo', 'en_progreso'};
+    final activo    = _pedidos.where((p) => enCurso.contains(p['estado'])).toList();
+    final historial = _pedidos.where((p) => !enCurso.contains(p['estado'])).toList();
 
     return ListView(
       padding: const EdgeInsets.fromLTRB(16, 16, 16, 24),
       children: [
         if (activo.isNotEmpty) ...[
-          _seccion('PEDIDO ACTUAL'),
+          _seccion(activo.length == 1 ? 'PEDIDO ACTUAL' : 'PEDIDOS ACTUALES'),
           SizedBox(height: 8),
           ...activo.map((p) => _buildTarjeta(p, destacado: true)),
           SizedBox(height: 20),
@@ -124,18 +143,18 @@ class _EstadoPedidoScreenState extends State<EstadoPedidoScreen> {
           fontWeight: FontWeight.w700, letterSpacing: 0.5));
 
   Widget _buildTarjeta(Map<String, dynamic> p, {required bool destacado}) {
-    final enProgreso  = p['estado'] == 'en_progreso';
+    final estado      = EstadoVenta.de(p['estado']?.toString());
+    final finalizada  = p['estado'] == 'finalizada';
+    final listo       = p['estado'] == 'listo';
     final total       = double.tryParse(p['total'].toString()) ?? 0;
     final fecha       = DateTime.tryParse(p['fecha']?.toString() ?? '');
     final resumen     = (p['resumen_productos'] as String?)?.trim() ?? 'Sin productos';
     final cantidad    = p['cantidad_productos'] ?? 0;
     final metodo      = p['metodo_pago'] as String?;
 
-    final estadoColor = enProgreso ? Color(0xFFF59E0B) : AppColors.accent;
-    final estadoLabel = enProgreso ? 'En progreso' : 'Finalizado';
-    final estadoIcon  = enProgreso
-        ? Icons.hourglass_top_rounded
-        : Icons.check_circle_outline_rounded;
+    final estadoColor = estado.color;
+    final estadoLabel = estado.etiqueta;
+    final estadoIcon  = estado.icono;
 
     return Container(
       margin: const EdgeInsets.only(bottom: 12),
@@ -159,8 +178,11 @@ class _EstadoPedidoScreenState extends State<EstadoPedidoScreen> {
             Text('Pedido #${p['id']}',
                 style: TextStyle(color: AppColors.textPrimary,
                     fontWeight: FontWeight.w700, fontSize: 14)),
+            SizedBox(width: 8),
             Spacer(),
-            Container(
+            Flexible(
+              flex: 4,
+              child: Container(
               padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
               decoration: BoxDecoration(
                 color: estadoColor.withValues(alpha: 0.12),
@@ -168,10 +190,36 @@ class _EstadoPedidoScreenState extends State<EstadoPedidoScreen> {
                 border: Border.all(color: estadoColor.withValues(alpha: 0.35)),
               ),
               child: Text(estadoLabel,
+                  overflow: TextOverflow.ellipsis,
                   style: TextStyle(color: estadoColor,
                       fontSize: 11, fontWeight: FontWeight.w600)),
+              ),
             ),
           ]),
+          if (listo) ...[
+            SizedBox(height: 10),
+            Container(
+              width: double.infinity,
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+              decoration: BoxDecoration(
+                color: estadoColor.withValues(alpha: 0.12),
+                borderRadius: BorderRadius.circular(10),
+              ),
+              child: Row(children: [
+                Icon(Icons.storefront_outlined, color: estadoColor, size: 18),
+                SizedBox(width: 8),
+                Expanded(
+                  child: Text('¡Tu pedido esta listo! Pasa a recogerlo a la tienda.',
+                      style: TextStyle(color: AppColors.textPrimary,
+                          fontSize: 13, fontWeight: FontWeight.w600)),
+                ),
+              ]),
+            ),
+          ] else if (p['estado'] == 'pendiente') ...[
+            SizedBox(height: 6),
+            Text('Estamos preparando tu pedido.',
+                style: TextStyle(color: AppColors.textMuted, fontSize: 12)),
+          ],
           SizedBox(height: 10),
           Divider(color: AppColors.border, height: 1),
           SizedBox(height: 10),
@@ -192,7 +240,11 @@ class _EstadoPedidoScreenState extends State<EstadoPedidoScreen> {
           SizedBox(height: 6),
 
           // Fecha y cantidad
-          Row(children: [
+          Wrap(
+            spacing: 5,
+            runSpacing: 4,
+            crossAxisAlignment: WrapCrossAlignment.center,
+            children: [
             Icon(Icons.calendar_today_outlined,
                 color: AppColors.textMuted, size: 13),
             SizedBox(width: 5),
@@ -206,9 +258,10 @@ class _EstadoPedidoScreenState extends State<EstadoPedidoScreen> {
             SizedBox(width: 5),
             Text('$cantidad producto${cantidad == 1 ? '' : 's'}',
                 style: TextStyle(color: AppColors.textMuted, fontSize: 12)),
-          ]),
+            ],
+          ),
 
-          if (metodo != null && !enProgreso) ...[
+          if (metodo != null && finalizada) ...[
             SizedBox(height: 6),
             Row(children: [
               Icon(Icons.payment_outlined,

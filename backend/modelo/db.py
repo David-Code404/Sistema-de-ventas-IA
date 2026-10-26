@@ -6,6 +6,7 @@ import mysql.connector
 from mysql.connector import pooling
 
 import config
+import validaciones
 
 
 # ============================================================
@@ -194,7 +195,8 @@ def listar_ventas(limite=50):
                 v.total,
                 v.creado_en        AS fecha,
                 v.metodo_pago,
-                u.username         AS cliente_nombre,
+                COALESCE(v.cliente_nombre, u.username) AS cliente_nombre,
+                v.cliente_documento,
                 COALESCE(SUM(dv.cantidad), 0) AS cantidad_productos,
                 GROUP_CONCAT(
                     CONCAT(dv.cantidad, 'x ', p.nombre)
@@ -204,7 +206,8 @@ def listar_ventas(limite=50):
             LEFT JOIN usuarios u      ON u.id  = v.cliente_usuario_id
             LEFT JOIN detalle_venta dv ON dv.venta_id = v.id
             LEFT JOIN productos p     ON p.id  = dv.producto_id
-            GROUP BY v.id, v.estado, v.total, v.creado_en, v.metodo_pago, u.username
+            GROUP BY v.id, v.estado, v.total, v.creado_en, v.metodo_pago, u.username,
+                     v.cliente_nombre, v.cliente_documento
             ORDER BY v.id DESC
             LIMIT %s
             """,
@@ -219,14 +222,17 @@ def listar_ventas(limite=50):
 # PEDIDOS DE CLIENTES (estado 'pendiente')
 # ============================================================
 
-def crear_pedido(usuario_id: int, items: list):
+def crear_pedido(usuario_id: int, items: list, nota=None,
+                 cliente_nombre=None, cliente_telefono=None):
     """
     Registra el pedido de un cliente con estado 'pendiente'.
     items: lista de {"producto_id": int, "cantidad": int}.
     El precio de cada producto se toma de la base de datos.
+    Solo VALIDA el stock: se descuenta cuando el cajero confirma el pedido.
+    Si no llegan nombre o telefono, se toman de la ficha del cliente.
     """
     if not items:
-        raise ValueError("El pedido debe tener al menos un producto.")
+        raise ValueError("Tu carrito esta vacio. Agrega al menos un producto.")
 
     # Une las lineas repetidas del mismo producto
     cantidades = {}
@@ -236,6 +242,8 @@ def crear_pedido(usuario_id: int, items: list):
             raise ValueError("Las cantidades deben ser mayores a cero.")
         cantidades[pid] = cantidades.get(pid, 0) + cant
 
+    nota = " ".join((nota or "").split())[:255] or None
+
     conexion = _conexion()
     try:
         conexion.autocommit = False
@@ -244,7 +252,19 @@ def crear_pedido(usuario_id: int, items: list):
         cursor.execute("SELECT rol FROM usuarios WHERE id = %s", (usuario_id,))
         usuario = cursor.fetchone()
         if usuario is None or usuario["rol"] != "cliente":
-            raise LookupError("Cliente no encontrado.")
+            raise PermissionError("Tu sesion no es valida. Vuelve a iniciar sesion.")
+
+        if not (cliente_nombre or "").strip() or not (cliente_telefono or "").strip():
+            cursor.execute(
+                "SELECT nombre, telefono FROM clientes WHERE usuario_id = %s", (usuario_id,)
+            )
+            ficha = cursor.fetchone() or {}
+            cliente_nombre = (cliente_nombre or "").strip() or ficha.get("nombre")
+            cliente_telefono = (cliente_telefono or "").strip() or ficha.get("telefono")
+        if not cliente_nombre or not cliente_telefono:
+            raise ValueError("Ingresa tu nombre y telefono para el pedido.")
+        cliente_nombre = validaciones.nombre(cliente_nombre)
+        cliente_telefono = validaciones.telefono(cliente_telefono)
 
         total = 0.0
         lineas = []
@@ -260,21 +280,37 @@ def crear_pedido(usuario_id: int, items: list):
                 raise ValueError(f"No hay stock suficiente de {p['nombre']} (quedan {p['stock']}).")
             precio = float(p["precio"])
             total += precio * cant
-            lineas.append((pid, cant, precio))
+            lineas.append((pid, p["nombre"], cant, precio))
 
         cursor.execute(
-            "INSERT INTO ventas (estado, total, cliente_usuario_id) VALUES ('pendiente', %s, %s)",
-            (round(total, 2), usuario_id),
+            "INSERT INTO ventas (estado, total, cliente_usuario_id, cliente_nombre, "
+            "cliente_telefono, nota) VALUES ('pendiente', %s, %s, %s, %s, %s)",
+            (round(total, 2), usuario_id, cliente_nombre, cliente_telefono, nota),
         )
         venta_id = cursor.lastrowid
-        for pid, cant, precio in lineas:
+        for pid, _, cant, precio in lineas:
             cursor.execute(
                 "INSERT INTO detalle_venta (venta_id, producto_id, cantidad, precio_unitario) "
                 "VALUES (%s, %s, %s, %s)",
                 (venta_id, pid, cant, precio),
             )
+        cursor.execute("SELECT creado_en FROM ventas WHERE id = %s", (venta_id,))
+        creado_en = cursor.fetchone()["creado_en"]
         conexion.commit()
-        return {"pedido_id": venta_id, "estado": "pendiente", "total": round(total, 2)}
+        return {
+            "pedido_id": venta_id,
+            "estado": "pendiente",
+            "total": round(total, 2),
+            "creado_en": creado_en.isoformat() if creado_en else None,
+            "cliente_nombre": cliente_nombre,
+            "cliente_telefono": cliente_telefono,
+            "nota": nota,
+            "items": [
+                {"producto_id": pid, "nombre": nom, "cantidad": cant,
+                 "precio_unitario": precio, "subtotal": round(precio * cant, 2)}
+                for pid, nom, cant, precio in lineas
+            ],
+        }
     except Exception:
         conexion.rollback()
         raise
@@ -282,20 +318,36 @@ def crear_pedido(usuario_id: int, items: list):
         conexion.close()
 
 
+ESTADOS_PEDIDO = ("pendiente", "listo")
+
+
+class EstadoPedidoInvalido(Exception):
+    """El pedido no esta en el estado que la accion requiere (p. ej. ya esta listo)."""
+
+
 def listar_pedidos_pendientes():
     """Pedidos de clientes en estado 'pendiente', del mas antiguo al mas reciente."""
+    return listar_pedidos("pendiente")
+
+
+def listar_pedidos(estado: str):
+    """Pedidos de clientes en el estado dado ('pendiente' o 'listo'), del mas antiguo al mas reciente."""
+    if estado not in ESTADOS_PEDIDO:
+        raise ValueError("Estado de pedido invalido.")
     conexion = _conexion()
     try:
         cursor = conexion.cursor(dictionary=True)
         cursor.execute(
             """
             SELECT v.id, v.estado, v.total, v.creado_en AS fecha,
-                   u.username AS cliente
+                   u.username AS cliente,
+                   v.cliente_nombre, v.cliente_telefono, v.nota, v.cajero
             FROM ventas v
             LEFT JOIN usuarios u ON u.id = v.cliente_usuario_id
-            WHERE v.estado = 'pendiente'
+            WHERE v.estado = %s
             ORDER BY v.creado_en ASC, v.id ASC
-            """
+            """,
+            (estado,),
         )
         pedidos = cursor.fetchall()
         for p in pedidos:
@@ -319,6 +371,103 @@ def listar_pedidos_pendientes():
                     "precio_unitario": float(f["precio_unitario"]),
                 })
         return pedidos
+    finally:
+        conexion.close()
+
+
+def resumen_pedidos():
+    """
+    Cuantos pedidos hay sin finalizar, para el contador del boton Pedidos.
+    ultimo_pendiente_id permite detectar pedidos nuevos sin pedir la lista.
+    """
+    conexion = _conexion()
+    try:
+        cursor = conexion.cursor(dictionary=True)
+        cursor.execute(
+            """
+            SELECT
+                COALESCE(SUM(estado = 'pendiente'), 0) AS pendientes,
+                COALESCE(SUM(estado = 'listo'), 0)     AS listos,
+                COALESCE(MAX(CASE WHEN estado = 'pendiente' THEN id END), 0) AS ultimo_pendiente_id
+            FROM ventas
+            WHERE estado IN ('pendiente', 'listo')
+            """
+        )
+        f = cursor.fetchone()
+        pendientes, listos = int(f["pendientes"]), int(f["listos"])
+        return {
+            "pendientes": pendientes,
+            "listos": listos,
+            "sin_finalizar": pendientes + listos,
+            "ultimo_pendiente_id": int(f["ultimo_pendiente_id"]),
+        }
+    finally:
+        conexion.close()
+
+
+def marcar_pedido_listo(pedido_id: int, usuario_id: int):
+    """
+    Pasa un pedido de 'pendiente' a 'listo' (listo para recoger) y DESCUENTA
+    el stock de sus productos, todo en una transaccion. Solo admin o cajero.
+    Si dos cajeros lo marcan a la vez, solo uno lo consigue.
+    No hay accion para deshacerlo.
+    """
+    conexion = _conexion()
+    try:
+        conexion.autocommit = False
+        cursor = conexion.cursor(dictionary=True)
+
+        cursor.execute("SELECT username, rol FROM usuarios WHERE id = %s", (usuario_id,))
+        usuario = cursor.fetchone()
+        if usuario is None or usuario["rol"] not in ("administrador", "cajero"):
+            raise PermissionError("Solo el cajero o el administrador pueden marcar pedidos.")
+
+        # Bloquea el pedido: el segundo cajero espera y luego ve que ya no esta pendiente
+        cursor.execute("SELECT estado FROM ventas WHERE id = %s FOR UPDATE", (pedido_id,))
+        venta = cursor.fetchone()
+        if venta is None:
+            raise LookupError("Pedido no encontrado.")
+        if venta["estado"] != "pendiente":
+            if venta["estado"] == "listo":
+                raise EstadoPedidoInvalido("Este pedido ya fue marcado como listo.")
+            raise EstadoPedidoInvalido("Este pedido ya no esta pendiente.")
+
+        # Bloquea los productos y valida el stock antes de descontar
+        cursor.execute(
+            """
+            SELECT dv.producto_id, dv.cantidad, p.nombre, p.stock
+            FROM detalle_venta dv
+            JOIN productos p ON p.id = dv.producto_id
+            WHERE dv.venta_id = %s
+            ORDER BY dv.producto_id
+            FOR UPDATE
+            """,
+            (pedido_id,),
+        )
+        lineas = cursor.fetchall()
+        if not lineas:
+            raise ValueError("El pedido no tiene productos.")
+        faltantes = [
+            f"{l['nombre']} (pide {l['cantidad']}, quedan {l['stock']})"
+            for l in lineas if int(l["cantidad"]) > int(l["stock"])
+        ]
+        if faltantes:
+            raise ValueError("No hay stock suficiente de: " + "; ".join(faltantes) + ".")
+
+        for l in lineas:
+            cursor.execute(
+                "UPDATE productos SET stock = stock - %s WHERE id = %s",
+                (l["cantidad"], l["producto_id"]),
+            )
+        cursor.execute(
+            "UPDATE ventas SET estado = 'listo', cajero = %s WHERE id = %s AND estado = 'pendiente'",
+            (usuario["username"][:50], pedido_id),
+        )
+        conexion.commit()
+        return {"pedido_id": pedido_id, "estado": "listo", "preparado_por": usuario["username"]}
+    except Exception:
+        conexion.rollback()
+        raise
     finally:
         conexion.close()
 
@@ -480,6 +629,49 @@ def buscar_cliente_por_documento(documento: str):
         cursor.execute(
             "SELECT * FROM clientes WHERE documento = %s", (documento,)
         )
+        return cursor.fetchone()
+    finally:
+        conexion.close()
+
+
+def actualizar_cliente(documento: str, nombre: str, email: str, direccion: str):
+    """
+    Actualiza nombre, correo y direccion de un cliente. No toca el documento,
+    el tipo de documento, el telefono ni total_compras.
+    Devuelve el cliente actualizado, o None si no existe.
+    Lanza ValueError si los datos no son validos.
+    """
+    documento = (documento or "").strip()
+    nombre = (nombre or "").strip()
+    email = (email or "").strip()
+    direccion = (direccion or "").strip()
+
+    if not nombre:
+        raise ValueError("El nombre es obligatorio.")
+    if len(nombre) > 100:
+        raise ValueError("El nombre no puede superar 100 caracteres.")
+    if not email:
+        raise ValueError("El correo es obligatorio.")
+    if len(email) > 100 or not re.match(r"^[^@\s]+@[^@\s]+\.[^@\s]+$", email):
+        raise ValueError("El correo no es valido.")
+    if not direccion:
+        raise ValueError("La direccion es obligatoria.")
+    if len(direccion) > 150:
+        raise ValueError("La direccion no puede superar 150 caracteres.")
+
+    conexion = _conexion()
+    try:
+        cursor = conexion.cursor(dictionary=True)
+        cursor.execute("SELECT documento FROM clientes WHERE documento = %s", (documento,))
+        if not cursor.fetchall():
+            return None
+        cursor.execute(
+            "UPDATE clientes SET nombre = %s, email = %s, direccion = %s "
+            "WHERE documento = %s",
+            (nombre, email, direccion, documento),
+        )
+        conexion.commit()
+        cursor.execute("SELECT * FROM clientes WHERE documento = %s", (documento,))
         return cursor.fetchone()
     finally:
         conexion.close()
@@ -655,6 +847,33 @@ def listar_inventario():
         conexion.close()
 
 
+def listar_stock_bajo():
+    """
+    Productos activos que llegaron o bajaron de su stock minimo configurado
+    (stock <= stock_minimo). Los agotados salen primero.
+    """
+    conexion = _conexion()
+    try:
+        cursor = conexion.cursor(dictionary=True)
+        cursor.execute(
+            """
+            SELECT
+                p.id,
+                p.nombre,
+                p.stock,
+                p.stock_minimo,
+                c.nombre AS categoria_nombre
+            FROM productos p
+            LEFT JOIN categorias c ON c.id = p.categoria_id
+            WHERE p.activo = TRUE AND p.stock <= p.stock_minimo
+            ORDER BY p.stock ASC, p.nombre
+            """
+        )
+        return cursor.fetchall()
+    finally:
+        conexion.close()
+
+
 def aumentar_stock(producto_id: int, cantidad: int):
     conexion = _conexion()
     try:
@@ -668,6 +887,50 @@ def aumentar_stock(producto_id: int, cantidad: int):
             return None
         cursor.execute("SELECT stock FROM productos WHERE id = %s", (producto_id,))
         return cursor.fetchone()[0]
+    finally:
+        conexion.close()
+
+
+def disminuir_stock(producto_id: int, cantidad: int):
+    """Resta unidades. Devuelve ('ok', stock) | ('no_existe', None) | ('insuficiente', stock)."""
+    conexion = _conexion()
+    try:
+        cursor = conexion.cursor()
+        cursor.execute(
+            "UPDATE productos SET stock = stock - %s "
+            "WHERE id = %s AND activo = TRUE AND stock >= %s",
+            (cantidad, producto_id, cantidad),
+        )
+        descontado = cursor.rowcount > 0
+        conexion.commit()
+        cursor.execute(
+            "SELECT stock FROM productos WHERE id = %s AND activo = TRUE",
+            (producto_id,),
+        )
+        fila = cursor.fetchone()
+        if fila is None:
+            return "no_existe", None
+        return ("ok" if descontado else "insuficiente"), fila[0]
+    finally:
+        conexion.close()
+
+
+def fijar_stock(producto_id: int, stock: int):
+    """Establece la cantidad exacta. Devuelve el nuevo stock o None si no existe."""
+    conexion = _conexion()
+    try:
+        cursor = conexion.cursor()
+        cursor.execute(
+            "UPDATE productos SET stock = %s WHERE id = %s AND activo = TRUE",
+            (stock, producto_id),
+        )
+        conexion.commit()
+        cursor.execute(
+            "SELECT stock FROM productos WHERE id = %s AND activo = TRUE",
+            (producto_id,),
+        )
+        fila = cursor.fetchone()
+        return None if fila is None else fila[0]
     finally:
         conexion.close()
 
@@ -903,6 +1166,157 @@ def login_usuario(username: str, password: str):
         }
     finally:
         conexion.close()
+
+
+# ============================================================
+# CAMBIO DE CONTRASEÑA (cualquier rol)
+# ============================================================
+
+class ContrasenaActualIncorrecta(Exception):
+    """La contraseña actual ingresada no coincide."""
+
+
+def cambiar_password(usuario_id: int, password_actual: str, password_nueva: str):
+    """
+    Cambia la contraseña de un usuario confirmando la actual (bcrypt).
+    Mismas reglas que al crear usuarios: 6 a 72 bytes. La nueva debe ser
+    distinta de la actual.
+    """
+    import bcrypt as _bcrypt
+
+    password_actual = password_actual or ""
+    password_nueva = password_nueva or ""
+    if not password_actual:
+        raise ValueError("Ingresa tu contraseña actual.")
+    if len(password_nueva) < 6:
+        raise ValueError("La nueva contraseña debe tener al menos 6 caracteres.")
+    if len(password_nueva.encode()) > 72:
+        raise ValueError("La nueva contraseña es demasiado larga (máximo 72 bytes).")
+
+    conexion = _conexion()
+    try:
+        cursor = conexion.cursor(dictionary=True)
+        cursor.execute("SELECT password FROM usuarios WHERE id = %s", (usuario_id,))
+        usuario = cursor.fetchone()
+        if usuario is None:
+            raise LookupError("Usuario no encontrado. Vuelve a iniciar sesión.")
+        hash_actual = usuario["password"].encode()
+        if not _bcrypt.checkpw(password_actual.encode(), hash_actual):
+            raise ContrasenaActualIncorrecta("La contraseña actual es incorrecta.")
+        if _bcrypt.checkpw(password_nueva.encode(), hash_actual):
+            raise ValueError("La nueva contraseña debe ser distinta de la actual.")
+
+        hash_nuevo = _bcrypt.hashpw(password_nueva.encode(), _bcrypt.gensalt()).decode()
+        cursor.execute("UPDATE usuarios SET password = %s WHERE id = %s", (hash_nuevo, usuario_id))
+        conexion.commit()
+    finally:
+        conexion.close()
+
+
+# ============================================================
+# CUENTAS DE CLIENTES (registro en linea)
+# ============================================================
+
+def obtener_cliente_de_usuario(usuario_id: int):
+    """Ficha del cliente vinculada a una cuenta, o None si no tiene."""
+    conexion = _conexion()
+    try:
+        cursor = conexion.cursor(dictionary=True)
+        cursor.execute(
+            "SELECT nombre, tipo_documento, documento, email, telefono, direccion "
+            "FROM clientes WHERE usuario_id = %s",
+            (usuario_id,),
+        )
+        return cursor.fetchone()
+    finally:
+        conexion.close()
+
+
+def registrar_cliente(email, password, nombre, tipo_documento, documento,
+                      telefono, direccion=None):
+    """
+    Crea la cuenta de un cliente (rol 'cliente', usuario = correo) y su ficha en
+    clientes, todo en una transaccion. Si el cajero ya habia registrado a ese
+    cliente por su documento en una venta, se vincula esa ficha con la cuenta.
+    Devuelve {"id", "username", "rol", "cliente": {...}}.
+    """
+    import bcrypt as _bcrypt
+    from mysql.connector import errors as _errores
+
+    email = validaciones.email(email)
+    nombre = validaciones.nombre(nombre)
+    documento, tipo_documento = validaciones.documento(documento, tipo_documento)
+    telefono = validaciones.telefono(telefono)
+    direccion = " ".join((direccion or "").split())[:150] or None
+    if len(password or "") < 6:
+        raise ValueError("La contrasena debe tener al menos 6 caracteres.")
+    if len(password.encode()) > 72:
+        raise ValueError("La contrasena es demasiado larga (maximo 72 bytes).")
+
+    hash_pw = _bcrypt.hashpw(password.encode(), _bcrypt.gensalt()).decode()
+
+    conexion = _conexion()
+    try:
+        conexion.autocommit = False
+        cursor = conexion.cursor(dictionary=True)
+
+        cursor.execute("SELECT id FROM usuarios WHERE username = %s", (email,))
+        if cursor.fetchone():
+            raise ValueError("Ese correo ya tiene una cuenta. Inicia sesion.")
+
+        cursor.execute(
+            "SELECT id, usuario_id FROM clientes WHERE documento = %s FOR UPDATE",
+            (documento,),
+        )
+        ficha = cursor.fetchone()
+        if ficha and ficha["usuario_id"] is not None:
+            raise ValueError("Ese documento ya esta registrado con otra cuenta.")
+
+        cursor.execute(
+            "INSERT INTO usuarios (username, password, rol) VALUES (%s, %s, 'cliente')",
+            (email, hash_pw),
+        )
+        usuario_id = cursor.lastrowid
+
+        if ficha:
+            cursor.execute(
+                """
+                UPDATE clientes
+                SET usuario_id = %s, tipo_documento = %s, nombre = %s, email = %s,
+                    telefono = %s, direccion = COALESCE(%s, direccion)
+                WHERE id = %s
+                """,
+                (usuario_id, tipo_documento, nombre, email, telefono, direccion, ficha["id"]),
+            )
+        else:
+            cursor.execute(
+                """
+                INSERT INTO clientes (documento, tipo_documento, nombre, email, telefono,
+                                      direccion, total_compras, usuario_id)
+                VALUES (%s, %s, %s, %s, %s, %s, 0, %s)
+                """,
+                (documento, tipo_documento, nombre, email, telefono, direccion, usuario_id),
+            )
+        conexion.commit()
+    except _errores.IntegrityError:
+        # Dos registros simultaneos con el mismo correo o documento
+        conexion.rollback()
+        raise ValueError("Ese correo o documento ya esta registrado.")
+    except Exception:
+        conexion.rollback()
+        raise
+    finally:
+        conexion.close()
+
+    return {
+        "id": usuario_id,
+        "username": email,
+        "rol": "cliente",
+        "cliente": {
+            "nombre": nombre, "tipo_documento": tipo_documento, "documento": documento,
+            "email": email, "telefono": telefono, "direccion": direccion,
+        },
+    }
 
 
 # ============================================================

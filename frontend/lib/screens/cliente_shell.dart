@@ -4,6 +4,9 @@ import '../models/session.dart';
 import '../screens/login_screen.dart';
 import '../screens/estado_pedido_screen.dart';
 import '../theme/app_colors.dart';
+import '../widgets/boton_carrito.dart';
+import '../widgets/boton_modo_tema.dart';
+import '../widgets/cambiar_password_dialog.dart';
 import 'catalogo_cliente_screen.dart';
 
 class ClienteShell extends StatefulWidget {
@@ -64,14 +67,40 @@ class _ClienteShellState extends State<ClienteShell>
               style: TextStyle(color: Color(0xFF38BDF8), fontSize: 12)),
         ]),
         actions: [
-          TextButton.icon(
-            onPressed: _cerrarSesion,
-            icon: Icon(Icons.logout_rounded,
-                size: 15, color: AppColors.danger.withValues(alpha: 0.8)),
-            label: Text('Salir',
-                style: TextStyle(
-                    color: AppColors.danger.withValues(alpha: 0.8),
-                    fontSize: 13)),
+          BotonCarrito(apiBase: widget.apiBase),
+          BotonModoTema(),
+          SizedBox(width: 4),
+          // Mi cuenta: cambiar contraseña y salir
+          PopupMenuButton<String>(
+            tooltip: 'Mi cuenta',
+            color: AppColors.surfaceAlt,
+            icon: Icon(Icons.account_circle_outlined,
+                size: 22, color: AppColors.textSecondary),
+            onSelected: (opcion) {
+              if (opcion == 'password') {
+                mostrarCambiarPassword(context, apiBase: widget.apiBase);
+              } else if (opcion == 'salir') {
+                _cerrarSesion();
+              }
+            },
+            itemBuilder: (_) => [
+              PopupMenuItem(
+                value: 'password',
+                child: Row(children: [
+                  Icon(Icons.lock_reset_rounded, size: 18, color: AppColors.textSecondary),
+                  SizedBox(width: 10),
+                  Text('Cambiar contraseña'),
+                ]),
+              ),
+              PopupMenuItem(
+                value: 'salir',
+                child: Row(children: [
+                  Icon(Icons.logout_rounded, size: 18, color: AppColors.danger),
+                  SizedBox(width: 10),
+                  Text('Salir', style: TextStyle(color: AppColors.danger)),
+                ]),
+              ),
+            ],
           ),
           SizedBox(width: 8),
         ],

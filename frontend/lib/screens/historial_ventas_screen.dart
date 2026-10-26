@@ -6,11 +6,14 @@ import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
 
 import '../config/app_config.dart';
+import '../models/estado_venta.dart';
 import '../models/session.dart';
 import '../theme/app_colors.dart';
 import '../widgets/app_shell.dart';
 import '../widgets/app_sidebar.dart';
 import '../widgets/bounded_content.dart';
+import '../widgets/comprobante_vista.dart';
+import '../widgets/descarga.dart';
 import 'detalle_venta_screen.dart';
 
 const List<String> _camposBusqueda = ['Codigo', 'Producto', 'Fecha'];
@@ -38,6 +41,9 @@ class _HistorialVentasScreenState extends State<HistorialVentasScreen> {
   // Filtro por rango de fechas
   DateTime? _fechaInicio;
   DateTime? _fechaFin;
+
+  // Comprobante abierto en vista grande (dentro del area de contenido)
+  Map<String, dynamic>? _comprobanteAmpliado;
 
   @override
   void initState() {
@@ -69,6 +75,26 @@ class _HistorialVentasScreenState extends State<HistorialVentasScreen> {
       setState(() { _cargando = false; _error = 'No se pudo cargar el historial: $e'; });
     }
   }
+
+  // ── Comprobante ───────────────────────────────────────────
+  Future<void> _verDetalle(Map<String, dynamic> venta) async {
+    final ventaId = int.parse(venta['id'].toString());
+    final datos = await showDialog<Map<String, dynamic>>(
+      context: context,
+      builder: (_) => _VistaPreviaDialog(
+        carga: cargarComprobante(HistorialVentasScreen.apiBase, ventaId),
+      ),
+    );
+    if (datos == null || !mounted) return;
+    setState(() => _comprobanteAmpliado = datos);
+  }
+
+  void _descargarComprobante(Map<String, dynamic> datos) {
+    descargarDesde(
+        '${HistorialVentasScreen.apiBase}/ventas/${datos['id']}/comprobante.pdf');
+  }
+
+  void _cerrarComprobante() => setState(() => _comprobanteAmpliado = null);
 
   // ── Helpers de fecha ──────────────────────────────────────
   bool _esHoy(DateTime? f) {
@@ -294,6 +320,47 @@ class _HistorialVentasScreenState extends State<HistorialVentasScreen> {
   // ── Build ─────────────────────────────────────────────────
   @override
   Widget build(BuildContext context) {
+    final ampliado = _comprobanteAmpliado;
+
+    if (ampliado != null) {
+      return AppShell(
+        current: AppSection.ventas,
+        apiBase: HistorialVentasScreen.apiBase,
+        child: Scaffold(
+          backgroundColor: Colors.transparent,
+          appBar: AppBar(
+            leading: IconButton(
+              tooltip: 'Volver al historial',
+              icon: Icon(Icons.arrow_back),
+              onPressed: _cerrarComprobante,
+            ),
+            title: Text('Comprobante ${ampliado['numero'] ?? '#${ampliado['id']}'}'),
+            actions: [
+              Padding(
+                padding: const EdgeInsets.only(right: 16),
+                child: FilledButton.icon(
+                  onPressed: () => _descargarComprobante(ampliado),
+                  icon: Icon(Icons.download_rounded, size: 18),
+                  label: Text('Descargar comprobante'),
+                ),
+              ),
+            ],
+          ),
+          body: ListView(
+            padding: const EdgeInsets.fromLTRB(16, 16, 16, 32),
+            children: [
+              Center(
+                child: ConstrainedBox(
+                  constraints: BoxConstraints(maxWidth: 760),
+                  child: ComprobanteVista(datos: ampliado, grande: true),
+                ),
+              ),
+            ],
+          ),
+        ),
+      );
+    }
+
     return AppShell(
       current: AppSection.ventas,
       apiBase: HistorialVentasScreen.apiBase,
@@ -635,7 +702,7 @@ class _HistorialVentasScreenState extends State<HistorialVentasScreen> {
       ),
       child: LayoutBuilder(builder: (context, constraints) {
         final anchoTabla =
-            constraints.maxWidth > 720 ? constraints.maxWidth : 720.0;
+            constraints.maxWidth > 840 ? constraints.maxWidth : 840.0;
         return SingleChildScrollView(
           scrollDirection: Axis.horizontal,
           child: SizedBox(
@@ -671,6 +738,9 @@ class _HistorialVentasScreenState extends State<HistorialVentasScreen> {
           SizedBox(
               width: 90,
               child: Text('TOTAL', style: estilo, textAlign: TextAlign.right)),
+          SizedBox(
+              width: 130,
+              child: Text('COMPROBANTE', style: estilo, textAlign: TextAlign.center)),
         ],
       ),
     );
@@ -680,10 +750,12 @@ class _HistorialVentasScreenState extends State<HistorialVentasScreen> {
     final total        = double.tryParse(venta['total'].toString()) ?? 0;
     final estado       = (venta['estado'] ?? '').toString();
     final esFinalizada = estado == 'finalizada';
-    final color        = esFinalizada ? AppColors.accent : AppColors.warning;
+    final infoEstado   = EstadoVenta.de(estado);
+    final color        = infoEstado.color;
     final fecha        = DateTime.tryParse(venta['fecha']?.toString() ?? '');
     final resumen      = (venta['resumen_productos'] as String?)?.trim();
     final cantidad     = venta['cantidad_productos'];
+    final cliente      = (venta['cliente_nombre'] as String?)?.trim();
 
     return InkWell(
       onTap: () => Navigator.push(
@@ -713,9 +785,7 @@ class _HistorialVentasScreenState extends State<HistorialVentasScreen> {
               child: Row(
                 children: [
                   Icon(
-                      esFinalizada
-                          ? Icons.check_circle_outline
-                          : Icons.hourglass_bottom,
+                      infoEstado.icono,
                       size: 14,
                       color: color),
                   SizedBox(width: 6),
@@ -723,12 +793,17 @@ class _HistorialVentasScreenState extends State<HistorialVentasScreen> {
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        Text('Venta en tienda',
+                        Text(
+                            (cliente == null || cliente.isEmpty)
+                                ? 'Venta en tienda'
+                                : cliente,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
                             style: TextStyle(
                                 color: AppColors.textPrimary,
                                 fontSize: 12.5,
                                 fontWeight: FontWeight.w600)),
-                        Text(esFinalizada ? 'Finalizada' : 'En progreso',
+                        Text(infoEstado.etiqueta,
                             style: TextStyle(color: color, fontSize: 11)),
                       ],
                     ),
@@ -780,6 +855,25 @@ class _HistorialVentasScreenState extends State<HistorialVentasScreen> {
                 ],
               ),
             ),
+            SizedBox(
+              width: 130,
+              child: Center(
+                child: esFinalizada
+                    ? OutlinedButton.icon(
+                        onPressed: () => _verDetalle(venta),
+                        icon: Icon(Icons.receipt_long_outlined, size: 15),
+                        label: Text('Ver detalle'),
+                        style: OutlinedButton.styleFrom(
+                          visualDensity: VisualDensity.compact,
+                          textStyle: TextStyle(
+                              fontSize: 12, fontWeight: FontWeight.w600),
+                        ),
+                      )
+                    : Text('Sin comprobante',
+                        style: TextStyle(
+                            color: AppColors.textMuted, fontSize: 11)),
+              ),
+            ),
           ],
         ),
       ),
@@ -797,6 +891,99 @@ class _HistorialVentasScreenState extends State<HistorialVentasScreen> {
     if (d.inHours   < 24) return 'hace ${d.inHours} h';
     if (d.inDays    < 7)  return 'hace ${d.inDays} dias';
     return 'hace ${(d.inDays / 7).floor()} semanas';
+  }
+}
+
+// ══════════════════════════════════════════════════════════════
+//  POPUP — vista previa del comprobante. Al hacer clic devuelve los
+//  datos para abrir la vista grande.
+// ══════════════════════════════════════════════════════════════
+class _VistaPreviaDialog extends StatelessWidget {
+  final Future<Map<String, dynamic>> carga;
+
+  const _VistaPreviaDialog({required this.carga});
+
+  @override
+  Widget build(BuildContext context) {
+    return Dialog(
+      backgroundColor: AppColors.surfaceAlt,
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+      child: ConstrainedBox(
+        constraints: BoxConstraints(maxWidth: 480, maxHeight: 680),
+        child: FutureBuilder<Map<String, dynamic>>(
+          future: carga,
+          builder: (context, snap) {
+            if (snap.connectionState != ConnectionState.done) {
+              return SizedBox(
+                height: 200,
+                child: Center(
+                    child: CircularProgressIndicator(color: AppColors.accent)),
+              );
+            }
+            if (snap.hasError) {
+              final error = snap.error.toString().replaceFirst('Exception: ', '');
+              return Padding(
+                padding: const EdgeInsets.all(24),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Text('No se pudo cargar el comprobante: $error',
+                        textAlign: TextAlign.center,
+                        style: TextStyle(color: AppColors.textSecondary)),
+                    SizedBox(height: 12),
+                    TextButton(
+                      onPressed: () => Navigator.pop(context),
+                      child: Text('Cerrar'),
+                    ),
+                  ],
+                ),
+              );
+            }
+            final datos = snap.data!;
+            return Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                Flexible(
+                  child: SingleChildScrollView(
+                    padding: const EdgeInsets.fromLTRB(16, 16, 16, 0),
+                    child: Tooltip(
+                      message: 'Clic para ampliar',
+                      child: MouseRegion(
+                        cursor: SystemMouseCursors.zoomIn,
+                        child: GestureDetector(
+                          onTap: () => Navigator.pop(context, datos),
+                          child: ComprobanteVista(datos: datos),
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(16, 10, 16, 16),
+                  child: Row(
+                    children: [
+                      Icon(Icons.zoom_in_rounded,
+                          size: 16, color: AppColors.textMuted),
+                      SizedBox(width: 6),
+                      Expanded(
+                        child: Text('Haz clic en el comprobante para ampliarlo',
+                            style: TextStyle(
+                                color: AppColors.textMuted, fontSize: 11.5)),
+                      ),
+                      TextButton(
+                        onPressed: () => Navigator.pop(context),
+                        child: Text('Cerrar'),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            );
+          },
+        ),
+      ),
+    );
   }
 }
 

@@ -1,10 +1,18 @@
 import 'package:flutter/material.dart';
 import 'config/app_config.dart';
+import 'models/carrito_cliente.dart';
+import 'navegacion.dart';
+import 'screens/cliente_shell.dart';
 import 'screens/login_screen.dart';
 import 'theme/app_theme.dart';
 import 'theme/theme_controller.dart';
 
-void main() {
+Future<void> main() async {
+  WidgetsFlutterBinding.ensureInitialized();
+  await ThemeController.instance.cargar();
+  await CarritoCliente.instance.cargar();
+  Navegacion.login = () => LoginScreen(apiBase: AppConfig.apiBase);
+  Navegacion.inicioCliente = () => ClienteShell(apiBase: AppConfig.apiBase);
   runApp(MyApp());
 }
 

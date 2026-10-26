@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import '../models/pedidos_monitor.dart';
 import '../models/session.dart';
 import '../screens/agregar_producto_screen.dart';
 import '../screens/catalogo_screen.dart';
@@ -11,6 +12,7 @@ import '../screens/login_screen.dart';
 import '../screens/pedidos_pendientes_screen.dart';
 import '../screens/usuarios_screen.dart';
 import '../theme/app_colors.dart';
+import 'cambiar_password_dialog.dart';
 import '../theme/theme_controller.dart';
 
 enum AppSection {
@@ -102,12 +104,16 @@ class AppSidebar extends StatelessWidget {
             onTap: () => _ir(context, HistorialVentasScreen()),
           ),
 
-          // Pedidos pendientes de clientes — Admin y Cajero
-          _NavItem(
-            icon: Icons.shopping_bag_outlined,
-            label: 'Pedidos',
-            active: current == AppSection.pedidos,
-            onTap: () => _ir(context, PedidosPendientesScreen(apiBase: apiBase)),
+          // Pedidos de clientes — Admin y Cajero (contador de pedidos pendientes)
+          ListenableBuilder(
+            listenable: PedidosMonitor.instance,
+            builder: (context, _) => _NavItem(
+              icon: Icons.shopping_bag_outlined,
+              label: 'Pedidos',
+              contador: PedidosMonitor.instance.pendientes,
+              active: current == AppSection.pedidos,
+              onTap: () => _ir(context, PedidosPendientesScreen(apiBase: apiBase)),
+            ),
           ),
 
           // Categorias
@@ -171,13 +177,24 @@ class AppSidebar extends StatelessWidget {
 
           ]))),
           Divider(color: AppColors.border, height: 1),
+          SizedBox(height: 4),
+
+          // Cambiar contraseña (confirmando la actual)
+          _NavItem(
+            icon: Icons.lock_reset_rounded,
+            label: 'Cambiar contraseña',
+            active: false,
+            onTap: () => mostrarCambiarPassword(context, apiBase: apiBase),
+          ),
 
           // Toggle modo claro / oscuro
           ValueListenableBuilder<ThemeMode>(
             valueListenable: ThemeController.instance,
             builder: (_, mode, __) {
               final dark = mode == ThemeMode.dark;
-              return Padding(
+              return InkWell(
+                onTap: ThemeController.instance.toggle,
+                child: Padding(
                 padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
                 child: Row(
                   children: [
@@ -195,8 +212,7 @@ class AppSidebar extends StatelessWidget {
                           fontWeight: FontWeight.w500),
                     ),
                     Spacer(),
-                    GestureDetector(
-                      onTap: ThemeController.instance.toggle,
+                    IgnorePointer(
                       child: AnimatedContainer(
                         duration: Duration(milliseconds: 200),
                         width: 40,
@@ -232,6 +248,7 @@ class AppSidebar extends StatelessWidget {
                       ),
                     ),
                   ],
+                ),
                 ),
               );
             },
@@ -301,6 +318,7 @@ class AppSidebar extends StatelessWidget {
   }
 
   void _cerrarSesion(BuildContext context) {
+    PedidosMonitor.instance.detener();
     Session.cerrar();
     Navigator.of(context).pushAndRemoveUntil(
       MaterialPageRoute(builder: (_) => LoginScreen(apiBase: apiBase)),
@@ -314,12 +332,14 @@ class _NavItem extends StatelessWidget {
   final String label;
   final bool active;
   final VoidCallback onTap;
+  final int contador;
 
   const _NavItem({
     required this.icon,
     required this.label,
     required this.active,
     required this.onTap,
+    this.contador = 0,
   });
 
   @override
@@ -355,6 +375,26 @@ class _NavItem extends StatelessWidget {
                     fontSize: 13,
                   ),
                 ),
+                if (contador > 0) ...[
+                  Spacer(),
+                  Tooltip(
+                    message: '$contador pedido(s) pendiente(s) por preparar',
+                    child: Container(
+                      constraints: BoxConstraints(minWidth: 22),
+                      padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 2),
+                      decoration: BoxDecoration(
+                        color: AppColors.warning,
+                        borderRadius: BorderRadius.circular(10),
+                      ),
+                      child: Text(contador > 99 ? '99+' : '$contador',
+                          textAlign: TextAlign.center,
+                          style: TextStyle(
+                              color: AppColors.accentOnAccent,
+                              fontSize: 11,
+                              fontWeight: FontWeight.w800)),
+                    ),
+                  ),
+                ],
               ],
             ),
           ),

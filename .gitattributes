@@ -1,0 +1,8 @@
+# Archivos binarios: Git no debe cambiar sus saltos de linea (core.autocrlf)
+# ni mostrarlos como texto. Sin esto, un PDF puede llegar dañado en Windows.
+*.pdf  binary
+*.docx binary
+*.png  binary
+*.jpg  binary
+*.jpeg binary
+*.pt   binary

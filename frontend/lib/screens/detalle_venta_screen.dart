@@ -5,6 +5,7 @@ import 'dart:html' as html;
 import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
 
+import '../models/estado_venta.dart';
 import '../models/session.dart';
 import '../theme/app_colors.dart';
 import '../widgets/bounded_content.dart';
@@ -209,9 +210,9 @@ class _DetalleVentaScreenState extends State<DetalleVentaScreen> {
 
   Widget _buildEncabezado() {
     final estado       = (widget.venta['estado'] ?? '').toString();
-    final esFinalizada = estado == 'finalizada';
     final fecha        = widget.venta['fecha']?.toString();
-    final color        = esFinalizada ? AppColors.accent : AppColors.warning;
+    final infoEstado   = EstadoVenta.de(estado);
+    final color        = infoEstado.color;
 
     return Container(
       padding: const EdgeInsets.all(14),
@@ -229,7 +230,7 @@ class _DetalleVentaScreenState extends State<DetalleVentaScreen> {
               borderRadius: BorderRadius.circular(10),
             ),
             child: Icon(
-              esFinalizada ? Icons.check_circle_outline : Icons.hourglass_bottom,
+              infoEstado.icono,
               color: color, size: 20,
             ),
           ),
@@ -239,7 +240,7 @@ class _DetalleVentaScreenState extends State<DetalleVentaScreen> {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text(
-                  esFinalizada ? 'Finalizada' : 'En progreso',
+                  infoEstado.etiqueta,
                   style: TextStyle(color: color, fontWeight: FontWeight.w600, fontSize: 13),
                 ),
                 if (fecha != null) ...[

@@ -231,8 +231,18 @@ class _Comprobante extends StatelessWidget {
     final documento = _texto('cliente_documento');
     final email = _texto('cliente_email');
     final telefono = _texto('cliente_telefono');
-    final sinDatos =
-        nombre == null && documento == null && email == null && telefono == null;
+    final direccion = _texto('cliente_direccion');
+    final tipoDoc = switch (_texto('cliente_tipo_documento')?.toUpperCase()) {
+      'CI' => 'CI',
+      'NIT' => 'NIT',
+      'EXTRANJERO' => 'Doc. extranjero',
+      _ => 'NIT / CI',
+    };
+    final sinDatos = nombre == null &&
+        documento == null &&
+        email == null &&
+        telefono == null &&
+        direccion == null;
     return [
       if (sinDatos)
         Padding(
@@ -242,9 +252,10 @@ class _Comprobante extends StatelessWidget {
         )
       else ...[
         _fila('Nombre', nombre ?? '-'),
-        _fila('NIT / CI', documento ?? '-'),
+        _fila(tipoDoc, documento ?? '-'),
         if (email != null) _fila('Correo', email),
         if (telefono != null) _fila('Telefono', telefono),
+        if (direccion != null) _fila('Direccion', direccion),
       ],
       _fila('Factura', factura ? 'Solicitada' : 'No solicitada'),
     ];

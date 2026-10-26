@@ -1,12 +1,15 @@
 import 'dart:convert';
+import 'dart:math';
 import 'dart:typed_data';
 
 import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
 
+import '../models/carrito_cliente.dart';
 import '../models/categoria.dart';
 import '../theme/app_colors.dart';
 import '../widgets/bounded_content.dart';
+import 'carrito_cliente_screen.dart';
 
 /// Umbral para avisar al cliente que quedan pocas unidades.
 const _stockPocas = 5;
@@ -38,9 +41,9 @@ class _ProductoCliente {
       );
 }
 
-/// Vista de solo lectura para el rol Cliente:
-/// lista de productos con precio, categoria y existencias.
-/// No incluye ninguna accion de edicion, alta o baja.
+/// Catalogo en linea para el rol Cliente: productos con precio, categoria y
+/// existencias, y seleccion de cantidad para agregarlos al carrito (sin
+/// superar el stock). No incluye ninguna accion de edicion, alta o baja.
 class ClienteProductosScreen extends StatefulWidget {
   final String apiBase;
 
@@ -61,6 +64,9 @@ class _ClienteProductosScreenState extends State<ClienteProductosScreen> {
   String _busqueda = '';
   int? _categoriaFiltro;
   bool _soloDisponibles = false;
+
+  // Cantidad elegida en el selector de cada producto (por defecto 1)
+  final Map<int, int> _seleccion = {};
 
   @override
   void initState() {
@@ -102,6 +108,8 @@ class _ClienteProductosScreenState extends State<ClienteProductosScreen> {
       final items = lista
           .map((e) => _ProductoCliente.fromJson(e as Map<String, dynamic>))
           .toList();
+      // Mantiene el carrito al dia con el stock y precios actuales
+      CarritoCliente.instance.sincronizar(lista.cast<Map<String, dynamic>>());
       if (!mounted) return;
       setState(() {
         _items = items;
@@ -422,6 +430,8 @@ class _ClienteProductosScreenState extends State<ClienteProductosScreen> {
                           color: color,
                           fontSize: 11.5,
                           fontWeight: FontWeight.w600)),
+                  SizedBox(height: 12),
+                  _accionesCarrito(p),
                 ],
               ),
             ),
@@ -429,6 +439,90 @@ class _ClienteProductosScreenState extends State<ClienteProductosScreen> {
         ),
       ),
     );
+  }
+
+  // ── Carrito ─────────────────────────────────────────────────
+  Widget _accionesCarrito(_ProductoCliente p) {
+    return ListenableBuilder(
+      listenable: CarritoCliente.instance,
+      builder: (context, _) {
+        final carrito = CarritoCliente.instance;
+        final enCarrito = carrito.cantidadDe(p.id);
+        final restante = carrito.restantePara(p.id, p.stock);
+        final estiloBoton = FilledButton.styleFrom(
+          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 10),
+          textStyle: TextStyle(fontSize: 12.5, fontWeight: FontWeight.w600),
+        );
+
+        if (p.stock <= 0) {
+          return FilledButton.icon(
+            onPressed: null,
+            style: estiloBoton,
+            icon: Icon(Icons.block_rounded, size: 16),
+            label: Text('Agotado'),
+          );
+        }
+
+        final elegida = min(_seleccion[p.id] ?? 1, max(restante, 1));
+        return Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            if (restante > 0) ...[
+              Align(
+                alignment: Alignment.centerLeft,
+                child: SelectorCantidad(
+                  cantidad: elegida,
+                  maximo: restante,
+                  onCambio: (n) => setState(() => _seleccion[p.id] = n),
+                ),
+              ),
+              SizedBox(height: 8),
+            ],
+            FilledButton.icon(
+              onPressed: restante > 0 ? () => _agregar(p, elegida) : null,
+              style: estiloBoton,
+              icon: Icon(Icons.add_shopping_cart_rounded, size: 16),
+              label: Text(
+                restante > 0 ? 'Agregar al carrito' : 'Maximo en el carrito',
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+              ),
+            ),
+            if (enCarrito > 0) ...[
+              SizedBox(height: 6),
+              Text('$enCarrito en tu carrito',
+                  style: TextStyle(
+                      color: AppColors.accent,
+                      fontSize: 11.5,
+                      fontWeight: FontWeight.w600)),
+            ],
+          ],
+        );
+      },
+    );
+  }
+
+  void _agregar(_ProductoCliente p, int cantidad) {
+    final agregadas = CarritoCliente.instance.agregar(
+      productoId: p.id,
+      nombre: p.nombre,
+      precio: p.precio,
+      stock: p.stock,
+      cantidad: cantidad,
+    );
+    setState(() => _seleccion[p.id] = 1);
+    if (agregadas == 0) return;
+    ScaffoldMessenger.of(context)
+      ..hideCurrentSnackBar()
+      ..showSnackBar(SnackBar(
+        content: Text('Agregaste $agregadas x ${p.nombre} al carrito'),
+        duration: const Duration(seconds: 3),
+        action: SnackBarAction(
+          label: 'Ver carrito',
+          onPressed: () => Navigator.of(context).push(MaterialPageRoute(
+              builder: (_) => CarritoClienteScreen(apiBase: widget.apiBase))),
+        ),
+      ));
   }
 
   /// 85.0 -> "85", 12.5 -> "12.50"

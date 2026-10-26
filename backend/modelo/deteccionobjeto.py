@@ -5,14 +5,12 @@ Sin deteccion de productos por camara: no usa YOLO, CLIP ni FAISS.
 
 from __future__ import annotations
 
-import json
 import os
 import re
 import tempfile
 import threading
 import time
 import uuid
-from collections import Counter, deque
 from pathlib import Path
 
 from fastapi import BackgroundTasks, FastAPI, File, Form, HTTPException, Query, Response, UploadFile
@@ -25,6 +23,9 @@ import comprobante
 import historial_pdf as historial_pdf_mod
 import config
 import db
+import rutas_cuentas
+import rutas_pedidos
+import rutas_tienda
 
 # ══════════════════════════════════════════════════════════════
 #  CONFIGURACION
@@ -44,20 +45,14 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+# Catalogo, cuentas de clientes y pedidos: modulos sin YOLO (tambien en app_tienda.py)
+app.include_router(rutas_cuentas.router)
+app.include_router(rutas_tienda.router)
+app.include_router(rutas_pedidos.router)
+
 # ══════════════════════════════════════════════════════════════
 #  AUTENTICACION
 # ══════════════════════════════════════════════════════════════
-class LoginIn(BaseModel):
-    username: str
-    password: str
-
-@app.post("/auth/login")
-def login(datos: LoginIn):
-    usuario = db.login_usuario(datos.username, datos.password)
-    if usuario is None:
-        raise HTTPException(status_code=401, detail="Usuario o contrasena incorrectos.")
-    return usuario
-
 @app.get("/salud")
 def salud():
     return {"estado": "ok"}
@@ -97,24 +92,6 @@ def crear_producto(datos: ProductoNuevoIn):
     return {"producto_id": nuevo_id}
 
 
-@app.get("/productos")
-def buscar_productos(
-    nombre:       str | None   = None,
-    precio_min:   float | None = None,
-    precio_max:   float | None = None,
-    categoria_id: int | None   = None,
-):
-    return db.buscar_productos(
-        nombre=nombre,
-        precio_min=precio_min,
-        precio_max=precio_max,
-        categoria_id=categoria_id,
-    )
-
-@app.get("/inventario")
-def listar_inventario():
-    return db.listar_inventario()
-
 class AumentarStockIn(BaseModel):
     cantidad: int
 
@@ -127,6 +104,33 @@ def aumentar_stock(producto_id: int, datos: AumentarStockIn):
         raise HTTPException(status_code=404, detail="Producto no encontrado.")
     return {"id": producto_id, "stock": nuevo_stock}
 
+@app.post("/inventario/{producto_id}/disminuir")
+def disminuir_stock(producto_id: int, datos: AumentarStockIn):
+    if datos.cantidad <= 0:
+        raise HTTPException(status_code=422, detail="La cantidad debe ser mayor que cero.")
+    estado, stock = db.disminuir_stock(producto_id, datos.cantidad)
+    if estado == "no_existe":
+        raise HTTPException(status_code=404, detail="Producto no encontrado.")
+    if estado == "insuficiente":
+        raise HTTPException(status_code=400, detail=f"No hay suficiente stock: solo quedan {stock} unidades.")
+    return {"id": producto_id, "stock": stock}
+
+STOCK_MAXIMO = 1_000_000
+
+class FijarStockIn(BaseModel):
+    stock: int
+
+@app.put("/inventario/{producto_id}")
+def fijar_stock(producto_id: int, datos: FijarStockIn):
+    if datos.stock < 0:
+        raise HTTPException(status_code=422, detail="El stock no puede ser negativo.")
+    if datos.stock > STOCK_MAXIMO:
+        raise HTTPException(status_code=422, detail=f"El stock maximo es {STOCK_MAXIMO}.")
+    nuevo_stock = db.fijar_stock(producto_id, datos.stock)
+    if nuevo_stock is None:
+        raise HTTPException(status_code=404, detail="Producto no encontrado.")
+    return {"id": producto_id, "stock": nuevo_stock}
+
 @app.post("/productos/{producto_id}/imagen", status_code=200)
 async def subir_imagen_producto(producto_id: int, imagen: UploadFile = File(...)):
     ext       = Path(imagen.filename or "img.jpg").suffix.lower() or ".jpg"
@@ -135,14 +139,6 @@ async def subir_imagen_producto(producto_id: int, imagen: UploadFile = File(...)
     with open(ruta, "wb") as f:
         f.write(contenido)
     return {"ok": True, "path": str(ruta)}
-
-@app.get("/productos/{producto_id}/imagen")
-def obtener_imagen_producto(producto_id: int):
-    for ext in [".jpg", ".jpeg", ".png", ".webp"]:
-        ruta = IMAGENES_DIR / f"{producto_id}{ext}"
-        if ruta.exists():
-            return FileResponse(str(ruta))
-    raise HTTPException(status_code=404, detail="Sin imagen")
 
 class ActualizarProductoIn(BaseModel):
     nombre: str
@@ -233,10 +229,6 @@ class CategoriaIn(BaseModel):
             raise ValueError("El color debe ser un hex de 6 digitos, ej. #34D399")
         return v
 
-@app.get("/categorias")
-def listar_categorias():
-    return db.listar_categorias()
-
 @app.post("/categorias", status_code=201)
 def crear_categoria(datos: CategoriaIn):
     try:
@@ -286,32 +278,6 @@ def carrito(venta_id: int):
 @app.get("/ventas")
 def listar_ventas(limite: int = 50):
     return db.listar_ventas(limite)
-
-class ItemPedidoIn(BaseModel):
-    producto_id: int
-    cantidad: int
-
-class PedidoIn(BaseModel):
-    usuario_id: int
-    items: list[ItemPedidoIn]
-
-@app.post("/pedidos", status_code=201)
-def crear_pedido(datos: PedidoIn):
-    try:
-        return db.crear_pedido(datos.usuario_id, [i.model_dump() for i in datos.items])
-    except LookupError as e:
-        raise HTTPException(status_code=404, detail=str(e))
-    except ValueError as e:
-        raise HTTPException(status_code=422, detail=str(e))
-
-@app.get("/pedidos/pendientes")
-def pedidos_pendientes():
-    pedidos = db.listar_pedidos_pendientes()
-    for p in pedidos:
-        if hasattr(p["fecha"], "isoformat"):
-            p["fecha"] = p["fecha"].isoformat()
-        p["total"] = float(p["total"])
-    return pedidos
 
 class HistorialPdfIn(BaseModel):
     ids: list[int] = []
@@ -406,6 +372,31 @@ def eliminar_item(venta_id: int, producto_id: int):
 def detalle_venta(venta_id: int):
     return db.obtener_carrito(venta_id)
 
+@app.get("/ventas/{venta_id}/comprobante")
+def comprobante_json(
+    venta_id:   int,
+    usuario_id: int | None = Query(default=None),
+    rol:        str      = Query(default=""),
+):
+    """Datos del comprobante (venta, cliente, pago y productos) para la vista previa."""
+    venta = db.obtener_comprobante(venta_id)
+    if venta is None:
+        raise HTTPException(status_code=404, detail="Venta no encontrada.")
+    if venta["estado"] != "finalizada":
+        raise HTTPException(status_code=400, detail="La venta aun no esta finalizada.")
+
+    # Misma restriccion HU-16 que el PDF: el cliente solo ve su propio comprobante
+    if rol == "cliente":
+        if usuario_id is None or not db.verificar_propietario_venta(venta_id, usuario_id):
+            raise HTTPException(
+                status_code=403,
+                detail="No tienes permiso para ver este comprobante.",
+            )
+
+    venta["numero"] = comprobante.numero(venta)
+    return venta
+
+
 @app.get("/ventas/{venta_id}/comprobante.pdf")
 def comprobante_pdf(
     venta_id:     int,
@@ -438,6 +429,26 @@ def comprobante_pdf(
 @app.get("/clientes/{documento}")
 def buscar_cliente(documento: str):
     cliente = db.buscar_cliente_por_documento(documento.strip())
+    if cliente is None:
+        raise HTTPException(status_code=404, detail="Cliente no encontrado.")
+    for k, v in cliente.items():
+        if hasattr(v, "isoformat"):
+            cliente[k] = v.isoformat()
+    return cliente
+
+class ClienteEditarIn(BaseModel):
+    nombre: str
+    email: str
+    direccion: str
+
+@app.put("/clientes/{documento}")
+def actualizar_cliente(documento: str, datos: ClienteEditarIn):
+    try:
+        cliente = db.actualizar_cliente(
+            documento, datos.nombre, datos.email, datos.direccion
+        )
+    except ValueError as e:
+        raise HTTPException(status_code=422, detail=str(e))
     if cliente is None:
         raise HTTPException(status_code=404, detail="Cliente no encontrado.")
     for k, v in cliente.items():

@@ -7,7 +7,9 @@ import '../models/session.dart';
 import '../screens/admin_shell.dart';
 import '../screens/cajero_shell.dart';
 import '../screens/cliente_shell.dart';
+import '../screens/registro_cliente_screen.dart';
 import '../theme/app_colors.dart';
+import '../widgets/boton_modo_tema.dart';
 
 class LoginScreen extends StatefulWidget {
   final String apiBase;
@@ -61,6 +63,7 @@ class _LoginScreenState extends State<LoginScreen> {
         id: data['id'] as int,
         u:  data['username'] as String,
         r:  data['rol'] as String,
+        datosCliente: (data['cliente'] as Map?)?.cast<String, dynamic>(),
       );
 
       if (!mounted) return;
@@ -117,10 +120,17 @@ class _LoginScreenState extends State<LoginScreen> {
                     _buildLogo(),
                     SizedBox(height: 40),
                     _buildCard(),
+                    SizedBox(height: 18),
+                    _buildCrearCuenta(),
                   ],
                 ),
               ),
             ),
+          ),
+          Positioned(
+            top: 12,
+            right: 12,
+            child: SafeArea(child: BotonModoTema()),
           ),
         ],
       ),
@@ -167,6 +177,25 @@ class _LoginScreenState extends State<LoginScreen> {
     );
   }
 
+  Widget _buildCrearCuenta() {
+    return Wrap(
+      alignment: WrapAlignment.center,
+      crossAxisAlignment: WrapCrossAlignment.center,
+      children: [
+        Text('¿Eres cliente y no tienes cuenta?',
+            style: TextStyle(color: AppColors.textMuted, fontSize: 13)),
+        TextButton(
+          onPressed: _cargando
+              ? null
+              : () => Navigator.of(context).push(MaterialPageRoute(
+                  builder: (_) => RegistroClienteScreen(apiBase: widget.apiBase))),
+          child: Text('Crear cuenta',
+              style: TextStyle(fontWeight: FontWeight.w700)),
+        ),
+      ],
+    );
+  }
+
   Widget _buildCard() {
     return Container(
       padding: const EdgeInsets.all(28),
@@ -187,7 +216,7 @@ class _LoginScreenState extends State<LoginScreen> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
-            Text('Usuario',
+            Text('Usuario o correo',
                 style: TextStyle(
                     color: AppColors.textSecondary,
                     fontSize: 12,
@@ -198,7 +227,7 @@ class _LoginScreenState extends State<LoginScreen> {
               controller: _userCtrl,
               style: TextStyle(color: AppColors.textPrimary, fontSize: 14),
               decoration: InputDecoration(
-                hintText: 'Ingresa tu usuario',
+                hintText: 'Ingresa tu usuario o correo',
                 prefixIcon: Container(
                   margin: const EdgeInsets.all(10),
                   width: 32, height: 32,
