@@ -407,8 +407,9 @@ def comprobante_pdf(
     venta = db.obtener_comprobante(venta_id)
     if venta is None:
         raise HTTPException(status_code=404, detail="Venta no encontrada.")
-    if venta["estado"] != "finalizada":
-        raise HTTPException(status_code=400, detail="La venta aun no esta finalizada.")
+    # Comprobante de compras finalizadas y de pedidos en linea (pendientes o listos)
+    if venta["estado"] not in ("finalizada", "pendiente", "listo"):
+        raise HTTPException(status_code=400, detail="Esta venta aun no tiene comprobante.")
 
     if rol == "cliente":
         if usuario_id is None or not db.verificar_propietario_venta(venta_id, usuario_id):

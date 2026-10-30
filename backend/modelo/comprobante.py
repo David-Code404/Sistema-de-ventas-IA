@@ -121,6 +121,9 @@ def generar_pdf(venta, atendido_por=None):
 
     creado = venta["creado_en"]
     metodo = METODOS.get(venta["metodo_pago"], str(venta["metodo_pago"]).title())
+    estado_venta = venta.get("estado")
+    if estado_venta in ("pendiente", "listo"):
+        metodo = "Pago al recoger"      # el pedido en linea todavia no se cobro
     total = float(venta["total"])
 
     factura = bool(venta.get("factura"))
@@ -147,7 +150,8 @@ def generar_pdf(venta, atendido_por=None):
     c.roundRect(ANCHO - M - 120, ALTO - 184, 120, 30, 15, stroke=1, fill=1)
     c.setFillColor(VERDE_TEXTO)
     c.setFont("Helvetica-Bold", 12)
-    c.drawCentredString(ANCHO - M - 60, ALTO - 173, "PAGADO")
+    c.drawCentredString(ANCHO - M - 60, ALTO - 173,
+                        {"pendiente": "PEDIDO PENDIENTE", "listo": "LISTO PARA RECOGER"}.get(estado_venta, "PAGADO"))
 
     ancho_tarjeta = (ANCHO - 2 * M - 16) / 2
     alto_tarjeta = 112
@@ -176,7 +180,9 @@ def generar_pdf(venta, atendido_por=None):
         pagos.append(("Monto recibido", _bs(venta["monto_recibido"])))
         pagos.append(("Cambio", _bs(venta["cambio"] or 0)))
     else:
-        pagos.append(("Confirmacion", "Pago confirmado por el cajero"))
+        pagos.append(("Estado del pago", "Pendiente: se paga al recoger"
+                      if estado_venta in ("pendiente", "listo")
+                      else "Pago confirmado por el cajero"))
     _tarjeta(c, M + ancho_tarjeta + 16, y_tarjetas, ancho_tarjeta, alto_tarjeta,
              "INFORMACION DE PAGO", pagos)
 

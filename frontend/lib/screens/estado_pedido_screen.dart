@@ -8,6 +8,7 @@ import '../models/estado_venta.dart';
 import '../models/session.dart';
 import '../theme/app_colors.dart';
 import '../widgets/bounded_content.dart';
+import '../widgets/descarga.dart';
 
 class EstadoPedidoScreen extends StatefulWidget {
   final String apiBase;
@@ -22,6 +23,7 @@ class _EstadoPedidoScreenState extends State<EstadoPedidoScreen> {
   bool    _cargando = true;
   String? _error;
   Timer?  _timer;
+  final Set<int> _descargando = {};
 
   /// Cada cuanto se consulta el estado de los pedidos (p. ej. si ya esta listo)
   static const _intervalo = Duration(seconds: 15);
@@ -63,6 +65,37 @@ class _EstadoPedidoScreenState extends State<EstadoPedidoScreen> {
       if (!mounted || (silencioso && _pedidos.isNotEmpty)) return;
       setState(() { _cargando = false; _error = 'No se pudo cargar: $e'; });
     }
+  }
+
+  /// Baja el comprobante en PDF de una compra o pedido del cliente.
+  Future<void> _descargarComprobante(Map<String, dynamic> p) async {
+    final id = int.tryParse(p['id'].toString());
+    final uid = Session.usuarioId;
+    if (id == null || uid == null || _descargando.contains(id)) return;
+    setState(() => _descargando.add(id));
+    try {
+      final resp = await http.get(Uri.parse(
+          '${widget.apiBase}/ventas/$id/comprobante.pdf?usuario_id=$uid&rol=cliente'));
+      if (resp.statusCode == 403) {
+        _aviso('No tienes permiso para descargar este comprobante.', error: true);
+        return;
+      }
+      if (resp.statusCode != 200) throw Exception('Error ${resp.statusCode}');
+      descargarBytes(resp.bodyBytes, 'comprobante_pedido_$id.pdf');
+      _aviso('Comprobante del pedido #$id descargado.');
+    } catch (e) {
+      _aviso('No se pudo descargar el comprobante: $e', error: true);
+    } finally {
+      if (mounted) setState(() => _descargando.remove(id));
+    }
+  }
+
+  void _aviso(String texto, {bool error = false}) {
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+      content: Text(texto),
+      backgroundColor: error ? AppColors.danger : AppColors.accent,
+    ));
   }
 
   @override
@@ -286,6 +319,28 @@ class _EstadoPedidoScreenState extends State<EstadoPedidoScreen> {
                 style: TextStyle(color: AppColors.accent,
                     fontWeight: FontWeight.w800, fontSize: 18)),
           ]),
+
+          // Comprobante en PDF (compras finalizadas y pedidos en linea)
+          if (p['estado'] == 'finalizada' || p['estado'] == 'listo' ||
+              p['estado'] == 'pendiente') ...[
+            SizedBox(height: 12),
+            SizedBox(
+              width: double.infinity,
+              child: OutlinedButton.icon(
+                onPressed: _descargando.contains(int.tryParse(p['id'].toString()))
+                    ? null
+                    : () => _descargarComprobante(p),
+                icon: _descargando.contains(int.tryParse(p['id'].toString()))
+                    ? SizedBox(
+                        width: 14,
+                        height: 14,
+                        child: CircularProgressIndicator(
+                            strokeWidth: 2, color: AppColors.accent))
+                    : Icon(Icons.picture_as_pdf_outlined, size: 17),
+                label: Text('Descargar comprobante'),
+              ),
+            ),
+          ],
         ]),
       ),
     );
