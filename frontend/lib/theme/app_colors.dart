@@ -23,15 +23,20 @@ class AppColors {
   // ── Texto ────────────────────────────────────────────────────────────────
   static Color get textPrimary   => _dark ? Colors.white              : Color(0xFF0B1220);
   static Color get textSecondary => _dark ? Colors.white70            : Color(0xFF475569);
-  static Color get textMuted     => _dark ? Colors.white38            : Color(0xFF94A3B8);
+  static Color get textMuted     => _dark ? Colors.white54            : Color(0xFF5B6B82);
 
   // ── Acento y semánticos ──────────────────────────────────────────────────
   // El verde accent funciona bien en ambos modos; se mantiene igual.
-  static const Color accent        = Color(0xFF34D399);
-  static const Color accentOnAccent= Color(0xFF04241A);
+  // Verde de la marca: claro en modo oscuro y verde oscuro en modo claro, para que se
+  // lea como texto sobre fondo blanco. accentOnAccent es el texto que va encima.
+  static Color get accent         => _dark ? Color(0xFF34D399) : Color(0xFF047857);
+  static Color get accentOnAccent => _dark ? Color(0xFF04241A) : Color(0xFFFFFFFF);
 
-  static Color get danger  => _dark ? Color(0xFFF87171) : Color(0xFFDC2626);
-  static Color get warning => _dark ? Color(0xFFFBBF24) : Color(0xFFD97706);
+  static Color get danger   => _dark ? Color(0xFFF87171) : Color(0xFFB91C1C);
+  static Color get onDanger => _dark ? Color(0xFF2A0A0A) : Color(0xFFFFFFFF);
+  static Color get warning  => _dark ? Color(0xFFFBBF24) : Color(0xFFB45309);
+  static Color get info     => _dark ? Color(0xFF38BDF8) : Color(0xFF0369A1);
+  static Color get violeta  => _dark ? Color(0xFFA78BFA) : Color(0xFF6D28D9);
 
   // ── Paleta de etiquetas (fija — los mismos en ambos modos) ──────────────
   static const List<Color> tagPalette = [

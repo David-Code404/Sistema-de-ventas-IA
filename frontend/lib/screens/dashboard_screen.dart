@@ -28,10 +28,10 @@ const _rangos = [
   (0, 'Todo'),
 ];
 
-const _colorMetodo = {
+Map<String, Color> get _colorMetodo => {
   'efectivo': AppColors.accent,
-  'tarjeta': Color(0xFF38BDF8),
-  'qr': Color(0xFFA78BFA),
+  'tarjeta': AppColors.info,
+  'qr': AppColors.violeta,
 };
 
 const _iconoMetodo = {

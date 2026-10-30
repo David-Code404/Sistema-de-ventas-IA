@@ -15,14 +15,14 @@ class EstadoVenta {
 
   const EstadoVenta(this.etiqueta, this.color, this.icono);
 
-  static const _celeste = Color(0xFF38BDF8);
+  static Color get _celeste => AppColors.info;
 
   static EstadoVenta de(String? estado) {
     switch (estado) {
       case 'pendiente':
         return EstadoVenta('Pendiente', AppColors.warning, Icons.schedule_rounded);
       case 'listo':
-        return const EstadoVenta('Listo para recoger', _celeste, Icons.shopping_bag_outlined);
+        return EstadoVenta('Listo para recoger', _celeste, Icons.shopping_bag_outlined);
       case 'finalizada':
         return EstadoVenta('Finalizada', AppColors.accent, Icons.check_circle_outline);
       case 'en_progreso':

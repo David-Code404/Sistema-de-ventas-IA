@@ -209,7 +209,7 @@ class _CategoriasCrudScreenState extends State<CategoriasCrudScreen> {
         actions: [
           TextButton(onPressed: () => Navigator.pop(context), child: Text('Cancelar')),
           FilledButton(
-            style: FilledButton.styleFrom(backgroundColor: AppColors.danger, foregroundColor: Colors.white),
+            style: FilledButton.styleFrom(backgroundColor: AppColors.danger, foregroundColor: AppColors.onDanger),
             onPressed: () {
               Navigator.pop(context);
               _eliminarCategoria(categoria);

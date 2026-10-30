@@ -297,7 +297,7 @@ class AppSidebar extends StatelessWidget {
   Color get _colorRol {
     if (Session.esAdmin)  return AppColors.accent;
     if (Session.esCajero) return AppColors.warning;
-    return Color(0xFF38BDF8);
+    return AppColors.info;
   }
 
   IconData get _iconoRol {

@@ -12,12 +12,12 @@ ThemeData _buildTheme(Brightness brightness) {
   final surface  = dark ? Color(0xFF0F172A) : Color(0xFFFFFFFF);
   final surfaceAlt = dark ? Color(0xFF16213A) : Color(0xFFF8FAFF);
   final border   = dark ? Color(0xFF1E293B) : Color(0xFFE2E8F0);
-  const accent   = AppColors.accent;        // Color(0xFF34D399) — igual en ambos modos
-  final onAccent = AppColors.accentOnAccent; // Color(0xFF04241A)
+  final accent   = dark ? Color(0xFF34D399) : Color(0xFF047857);
+  final onAccent = dark ? Color(0xFF04241A) : Color(0xFFFFFFFF);
   final text1    = dark ? Colors.white             : Color(0xFF0B1220);
   final text2    = dark ? Colors.white70           : Color(0xFF475569);
-  final hint     = dark ? Colors.white38           : Color(0xFF94A3B8);
-  final danger   = dark ? Color(0xFFF87171) : Color(0xFFDC2626);
+  final hint     = dark ? Colors.white54           : Color(0xFF5B6B82);
+  final danger   = dark ? Color(0xFFF87171) : Color(0xFFB91C1C);
 
   return ThemeData(
     brightness: brightness,
@@ -29,7 +29,7 @@ ThemeData _buildTheme(Brightness brightness) {
       secondary: accent,
       onSecondary: onAccent,
       error: danger,
-      onError: Colors.white,
+      onError: dark ? Color(0xFF2A0A0A) : Colors.white,
       surface: surface,
       onSurface: text1,
     ),

@@ -252,7 +252,7 @@ class _PedidosPanelState extends State<PedidosPanel> {
                 FilledButton.icon(
                   style: FilledButton.styleFrom(
                     backgroundColor: _verdeWhatsApp,
-                    foregroundColor: Colors.white,
+                    foregroundColor: Color(0xFF042F14),
                   ),
                   onPressed: () {
                     WhatsApp.abrir(enlace);

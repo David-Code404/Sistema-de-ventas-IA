@@ -324,7 +324,7 @@ class _LoginScreenState extends State<LoginScreen> {
                     ? SizedBox(
                         width: 20, height: 20,
                         child: CircularProgressIndicator(
-                            strokeWidth: 2, color: Colors.white),
+                            strokeWidth: 2, color: AppColors.accentOnAccent),
                       )
                     : Text('Ingresar',
                         style: TextStyle(

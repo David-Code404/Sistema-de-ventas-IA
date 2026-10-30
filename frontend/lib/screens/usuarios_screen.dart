@@ -20,7 +20,7 @@ String _etiquetaRol(String rol) => switch (rol) {
 Color _colorRol(String rol) => switch (rol) {
       'administrador' => AppColors.accent,
       'cajero' => AppColors.warning,
-      _ => Color(0xFF38BDF8),
+      _ => AppColors.info,
     };
 
 IconData _iconoRol(String rol) => switch (rol) {

@@ -68,11 +68,11 @@ class _ClienteShellState extends State<ClienteShell>
           Container(
             width: 28, height: 28,
             decoration: BoxDecoration(
-              color: Color(0xFF38BDF8).withValues(alpha: 0.15),
+              color: AppColors.info.withValues(alpha: 0.15),
               borderRadius: BorderRadius.circular(7),
             ),
             child: Icon(Icons.person_outline_rounded,
-                color: Color(0xFF38BDF8), size: 15),
+                color: AppColors.info, size: 15),
           ),
           SizedBox(width: 8),
           Text(Session.username ?? 'Cliente',
@@ -80,7 +80,7 @@ class _ClienteShellState extends State<ClienteShell>
                   fontSize: 14, fontWeight: FontWeight.w600)),
           SizedBox(width: 6),
           Text('— Cliente',
-              style: TextStyle(color: Color(0xFF38BDF8), fontSize: 12)),
+              style: TextStyle(color: AppColors.info, fontSize: 12)),
         ]),
         actions: [
           BotonCarrito(apiBase: widget.apiBase),
