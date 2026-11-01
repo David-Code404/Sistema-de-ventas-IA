@@ -3,7 +3,7 @@ import 'package:flutter/material.dart';
 import '../models/cart_item.dart';
 import '../models/session.dart';
 import '../theme/app_colors.dart';
-import 'descarga.dart';
+import 'descarga_sesion.dart';
 
 const _meses = [
   'enero', 'febrero', 'marzo', 'abril', 'mayo', 'junio', 'julio',
@@ -91,7 +91,8 @@ class _ComprobanteDialog extends StatelessWidget {
 
   void _descargar() {
     final atendido = Uri.encodeQueryComponent(Session.username ?? '');
-    descargarDesde('$apiBase/ventas/$ventaId/comprobante.pdf?atendido_por=$atendido');
+    descargarPdfConSesion('$apiBase/ventas/$ventaId/comprobante.pdf?atendido_por=$atendido',
+        'comprobante_$ventaId.pdf');
   }
 
   @override

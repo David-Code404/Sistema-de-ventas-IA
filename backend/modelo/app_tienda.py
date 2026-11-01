@@ -13,12 +13,15 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 import config
+import rutas_2fa
 import rutas_cuentas
 import rutas_pedidos
 import rutas_tienda
+import seguridad
 
 app = FastAPI(title="Caja Registradora IA - Tienda en linea")
 
+app.add_middleware(seguridad.AutenticacionMiddleware)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=config.CORS_ORIGINS,
@@ -27,6 +30,7 @@ app.add_middleware(
 )
 
 app.include_router(rutas_cuentas.router)
+app.include_router(rutas_2fa.router)
 app.include_router(rutas_tienda.router)
 app.include_router(rutas_pedidos.router)
 

@@ -182,7 +182,7 @@ class AppSidebar extends StatelessWidget {
           // Cambiar contraseña (confirmando la actual)
           _NavItem(
             icon: Icons.lock_reset_rounded,
-            label: 'Cambiar contraseña',
+            label: 'Contraseña y seguridad',
             active: false,
             onTap: () => mostrarCambiarPassword(context, apiBase: apiBase),
           ),

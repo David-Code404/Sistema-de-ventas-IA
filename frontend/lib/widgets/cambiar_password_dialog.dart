@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
 
 import '../models/session.dart';
+import 'verificacion_dos_pasos_dialog.dart';
 import '../theme/app_colors.dart';
 
 /// Abre el dialogo para cambiar la contraseña del usuario con sesion,
@@ -155,6 +156,16 @@ class _CambiarPasswordDialogState extends State<CambiarPasswordDialog> {
                   label: 'Confirmar nueva contraseña',
                   validator: (v) => v != _nuevaCtrl.text ? 'Las contraseñas no coinciden' : null,
                   alEnviar: (_) => _guardar(),
+                ),
+                Align(
+                  alignment: Alignment.centerLeft,
+                  child: TextButton.icon(
+                    onPressed: _enviando
+                        ? null
+                        : () => mostrarVerificacionDosPasos(context, apiBase: widget.apiBase),
+                    icon: Icon(Icons.shield_outlined, size: 16),
+                    label: Text('Verificación en dos pasos'),
+                  ),
                 ),
                 if (_error != null)
                   Container(

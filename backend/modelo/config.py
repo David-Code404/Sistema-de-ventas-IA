@@ -49,3 +49,8 @@ IMAGENES_DIR = _opcional("IMAGENES_DIR", "imagenes_productos")
 # ── API ────────────────────────────────────────────────────────
 # Origenes permitidos separados por coma, o * para permitir todos
 CORS_ORIGINS = [o.strip() for o in _opcional("CORS_ORIGINS", "*").split(",") if o.strip()]
+
+# ── Sesiones ───────────────────────────────────────────────────
+# Clave con la que se firman los tokens de sesion. Debe ser larga y secreta.
+# Si falta, se usa una temporal y las sesiones se cierran al reiniciar el servidor.
+JWT_SECRET = _opcional("JWT_SECRET", "")

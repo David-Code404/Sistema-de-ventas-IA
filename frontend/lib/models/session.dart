@@ -6,6 +6,9 @@ class Session {
   static String? username;
   static String? rol;
 
+  /// Token de sesion que la API entrega al iniciar sesion.
+  static String? token;
+
   /// Ficha del cliente (nombre, documento, telefono...) si el rol es cliente.
   static Map<String, dynamic>? cliente;
 
@@ -19,7 +22,9 @@ class Session {
     required String u,
     required String r,
     Map<String, dynamic>? datosCliente,
+    String? tokenSesion,
   }) {
+    token     = tokenSesion;
     usuarioId = id;
     username  = u;
     rol       = r;
@@ -31,5 +36,6 @@ class Session {
     username  = null;
     rol       = null;
     cliente   = null;
+    token     = null;
   }
 }

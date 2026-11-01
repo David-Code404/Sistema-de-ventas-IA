@@ -23,9 +23,11 @@ import comprobante
 import historial_pdf as historial_pdf_mod
 import config
 import db
+import rutas_2fa
 import rutas_cuentas
 import rutas_pedidos
 import rutas_tienda
+import seguridad
 
 # ══════════════════════════════════════════════════════════════
 #  CONFIGURACION
@@ -38,6 +40,7 @@ IMAGENES_DIR.mkdir(exist_ok=True)
 # ══════════════════════════════════════════════════════════════
 app = FastAPI(title="Caja Registradora IA - API")
 
+app.add_middleware(seguridad.AutenticacionMiddleware)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=config.CORS_ORIGINS,
@@ -47,6 +50,7 @@ app.add_middleware(
 
 # Catalogo, cuentas de clientes y pedidos: modulos sin YOLO (tambien en app_tienda.py)
 app.include_router(rutas_cuentas.router)
+app.include_router(rutas_2fa.router)
 app.include_router(rutas_tienda.router)
 app.include_router(rutas_pedidos.router)
 

@@ -1,5 +1,4 @@
 import 'package:flutter/material.dart';
-import 'app_colors.dart';
 
 ThemeData buildDarkTheme()  => _buildTheme(Brightness.dark);
 ThemeData buildLightTheme() => _buildTheme(Brightness.light);

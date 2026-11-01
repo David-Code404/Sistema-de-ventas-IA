@@ -2,10 +2,11 @@
 Inicio de sesion y registro de clientes. No importan YOLO ni nada de deteccion.
 """
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel
 
 import db
+import seguridad
 
 router = APIRouter(tags=["cuentas"])
 
@@ -20,8 +21,13 @@ def login(datos: LoginIn):
     usuario = db.login_usuario(datos.username, datos.password)
     if usuario is None:
         raise HTTPException(status_code=401, detail="Usuario o contrasena incorrectos.")
+    # Con la verificacion en dos pasos activada, falta el segundo paso (/auth/2fa/verificar)
+    if db.dosfa_activo(usuario["id"]):
+        return {"requiere_2fa": True, "username": usuario["username"],
+                "token_2fa": seguridad.crear_token_2fa(usuario["id"])}
     if usuario["rol"] == "cliente":
         usuario["cliente"] = db.obtener_cliente_de_usuario(usuario["id"])
+    usuario["token"] = seguridad.crear_token(usuario)
     return usuario
 
 
@@ -32,8 +38,10 @@ class CambiarPasswordIn(BaseModel):
 
 
 @router.post("/auth/cambiar-password")
-def cambiar_password(datos: CambiarPasswordIn):
+def cambiar_password(datos: CambiarPasswordIn, request: Request):
     """Cambia la contraseña del usuario confirmando la actual (cualquier rol)."""
+    if request.state.usuario["id"] != datos.usuario_id:
+        raise HTTPException(status_code=403, detail="Solo puedes cambiar tu propia contraseña.")
     try:
         db.cambiar_password(datos.usuario_id, datos.password_actual, datos.password_nueva)
     except db.ContrasenaActualIncorrecta as e:
@@ -59,7 +67,7 @@ class RegistroClienteIn(BaseModel):
 def registrar_cliente(datos: RegistroClienteIn):
     """Crea la cuenta de un cliente. Solo crea rol 'cliente'."""
     try:
-        return db.registrar_cliente(
+        nuevo = db.registrar_cliente(
             email=datos.email,
             password=datos.password,
             nombre=datos.nombre,
@@ -68,6 +76,8 @@ def registrar_cliente(datos: RegistroClienteIn):
             telefono=datos.telefono,
             direccion=datos.direccion,
         )
+        nuevo["token"] = seguridad.crear_token(nuevo)
+        return nuevo
     except ValueError as e:
         mensaje = str(e)
         codigo = 409 if "registrad" in mensaje or "ya tiene una cuenta" in mensaje else 422

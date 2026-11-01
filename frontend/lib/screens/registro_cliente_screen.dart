@@ -87,6 +87,7 @@ class _RegistroClienteScreenState extends State<RegistroClienteScreen> {
           u: data['username'] as String,
           r: data['rol'] as String,
           datosCliente: (data['cliente'] as Map?)?.cast<String, dynamic>(),
+          tokenSesion: data['token'] as String?,
         );
         Navigator.of(context).pushAndRemoveUntil(
           MaterialPageRoute(builder: (_) => Navegacion.inicioCliente()),

@@ -150,7 +150,7 @@ class _BarraInferior extends StatelessWidget {
             Divider(color: AppColors.border, height: 1),
             ListTile(
               leading: Icon(Icons.lock_reset_rounded, color: AppColors.textSecondary),
-              title: Text('Cambiar contraseña'),
+              title: Text('Contraseña y seguridad'),
               onTap: () {
                 Navigator.pop(ctx);
                 mostrarCambiarPassword(context, apiBase: apiBase);
