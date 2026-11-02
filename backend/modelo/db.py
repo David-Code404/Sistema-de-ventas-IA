@@ -1626,3 +1626,50 @@ def dosfa_usar_respaldo(usuario_id: int, hash_codigo: str) -> bool:
         return True
     finally:
         conexion.close()
+
+
+def actualizar_perfil_cliente(usuario_id: int, nombre: str, email: str, direccion: str):
+    """
+    El cliente edita su propio perfil: nombre, correo y direccion. El correo es tambien su
+    usuario para iniciar sesion, asi que se actualiza en usuarios y en clientes a la vez.
+    Devuelve la ficha actualizada, o None si la cuenta no tiene ficha.
+    Lanza ValueError si los datos no son validos o el correo ya lo usa otra cuenta.
+    """
+    from mysql.connector import errors as _errores
+
+    nombre = validaciones.nombre(nombre)
+    email = validaciones.email(email)
+    direccion = " ".join((direccion or "").split())
+    if not direccion:
+        raise ValueError("La direccion es obligatoria.")
+    if len(direccion) > 150:
+        raise ValueError("La direccion no puede superar 150 caracteres.")
+
+    conexion = _conexion()
+    try:
+        conexion.autocommit = False
+        cursor = conexion.cursor(dictionary=True)
+        cursor.execute("SELECT id FROM clientes WHERE usuario_id = %s FOR UPDATE", (usuario_id,))
+        ficha = cursor.fetchone()
+        if ficha is None:
+            conexion.rollback()
+            return None
+        cursor.execute("SELECT id FROM usuarios WHERE username = %s AND id <> %s", (email, usuario_id))
+        if cursor.fetchone():
+            conexion.rollback()
+            raise ValueError("Ese correo ya tiene otra cuenta.")
+        cursor.execute("UPDATE usuarios SET username = %s WHERE id = %s", (email, usuario_id))
+        cursor.execute(
+            "UPDATE clientes SET nombre = %s, email = %s, direccion = %s WHERE id = %s",
+            (nombre, email, direccion, ficha["id"]),
+        )
+        conexion.commit()
+    except _errores.IntegrityError:
+        conexion.rollback()
+        raise ValueError("Ese correo ya tiene otra cuenta.")
+    except Exception:
+        conexion.rollback()
+        raise
+    finally:
+        conexion.close()
+    return obtener_cliente_de_usuario(usuario_id)

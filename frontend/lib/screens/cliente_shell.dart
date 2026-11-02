@@ -1,3 +1,4 @@
+import 'mi_perfil_screen.dart';
 import 'package:flutter/material.dart';
 
 import '../models/session.dart';
@@ -93,11 +94,22 @@ class _ClienteShellState extends State<ClienteShell>
             icon: Icon(Icons.account_circle_outlined,
                 size: 22, color: AppColors.textSecondary),
             onSelected: (opcion) {
-              if (opcion == 'password') {
+              if (opcion == 'perfil') {
+                Navigator.of(context).push(MaterialPageRoute(
+                    builder: (_) => MiPerfilScreen(apiBase: widget.apiBase)));
+              } else if (opcion == 'password') {
                 mostrarCambiarPassword(context, apiBase: widget.apiBase);
               }
             },
             itemBuilder: (_) => [
+              PopupMenuItem(
+                value: 'perfil',
+                child: Row(children: [
+                  Icon(Icons.badge_outlined, size: 18, color: AppColors.textSecondary),
+                  SizedBox(width: 10),
+                  Text('Mi perfil'),
+                ]),
+              ),
               PopupMenuItem(
                 value: 'password',
                 child: Row(children: [

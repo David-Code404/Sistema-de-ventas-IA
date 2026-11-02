@@ -82,3 +82,36 @@ def registrar_cliente(datos: RegistroClienteIn):
         mensaje = str(e)
         codigo = 409 if "registrad" in mensaje or "ya tiene una cuenta" in mensaje else 422
         raise HTTPException(status_code=codigo, detail=mensaje)
+
+
+class PerfilIn(BaseModel):
+    nombre: str
+    email: str
+    direccion: str
+
+
+def _ficha(cliente: dict) -> dict:
+    return {k: (v.isoformat() if hasattr(v, "isoformat") else v) for k, v in cliente.items()}
+
+
+@router.get("/mi-perfil")
+def ver_mi_perfil(request: Request):
+    """Ficha de la persona con sesion (solo clientes)."""
+    cliente = db.obtener_cliente_de_usuario(request.state.usuario["id"])
+    if cliente is None:
+        raise HTTPException(status_code=404, detail="Tu cuenta no tiene ficha de cliente.")
+    return _ficha(cliente)
+
+
+@router.put("/mi-perfil")
+def editar_mi_perfil(datos: PerfilIn, request: Request):
+    """Cambia nombre, correo y direccion de la persona con sesion (solo clientes)."""
+    try:
+        cliente = db.actualizar_perfil_cliente(
+            request.state.usuario["id"], datos.nombre, datos.email, datos.direccion)
+    except ValueError as e:
+        mensaje = str(e)
+        raise HTTPException(status_code=409 if "otra cuenta" in mensaje else 422, detail=mensaje)
+    if cliente is None:
+        raise HTTPException(status_code=404, detail="Tu cuenta no tiene ficha de cliente.")
+    return {"username": cliente["email"], "cliente": _ficha(cliente)}

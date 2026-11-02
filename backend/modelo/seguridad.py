@@ -152,7 +152,7 @@ CUALQUIER_ROL = [
     ("POST", r"^/auth/2fa/(preparar|activar|desactivar)$"),
     ("GET", r"^/ventas/\d+/comprobante(\.pdf)?$"),
 ]
-SOLO_CLIENTE = [("POST", r"^/pedidos$")]
+SOLO_CLIENTE = [("POST", r"^/pedidos$"), ("GET|PUT", r"^/mi-perfil$")]
 SOLO_ADMIN = [
     ("GET|POST|PUT|DELETE", r"^/usuarios"),
     ("GET", r"^/dashboard/estadisticas$"),
@@ -197,7 +197,7 @@ class AutenticacionMiddleware(BaseHTTPMiddleware):
             ficha = re.match(r"^/clientes/([^/]+)$", ruta)
             permitido = bool(
                 (propia and metodo == "GET" and int(propia.group(1)) == usuario["id"])
-                or (ficha and metodo in ("GET", "PUT") and usuario["doc"]
+                or (ficha and metodo == "GET" and usuario["doc"]
                     and unquote(ficha.group(1)).strip().upper() == usuario["doc"])
             )
         else:
