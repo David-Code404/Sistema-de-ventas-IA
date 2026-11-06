@@ -10,7 +10,6 @@ import '../screens/cliente_shell.dart';
 import '../screens/registro_cliente_screen.dart';
 import '../theme/app_colors.dart';
 import '../widgets/boton_modo_tema.dart';
-import '../widgets/verificacion_dos_pasos_dialog.dart';
 
 class LoginScreen extends StatefulWidget {
   final String apiBase;
@@ -59,19 +58,7 @@ class _LoginScreenState extends State<LoginScreen> {
         return;
       }
 
-      var data = jsonDecode(resp.body) as Map<String, dynamic>;
-      if (data['requiere_2fa'] == true) {
-        // Verificacion en dos pasos activada: falta el codigo de la app
-        if (!mounted) return;
-        final verificado = await pedirCodigoDosPasos(context,
-            apiBase: widget.apiBase, token2fa: data['token_2fa'] as String);
-        if (!mounted) return;
-        if (verificado == null) {
-          setState(() => _cargando = false);
-          return;
-        }
-        data = verificado;
-      }
+      final data = jsonDecode(resp.body) as Map<String, dynamic>;
       Session.iniciar(
         id: data['id'] as int,
         u:  data['username'] as String,

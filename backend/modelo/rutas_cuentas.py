@@ -21,10 +21,6 @@ def login(datos: LoginIn):
     usuario = db.login_usuario(datos.username, datos.password)
     if usuario is None:
         raise HTTPException(status_code=401, detail="Usuario o contrasena incorrectos.")
-    # Con la verificacion en dos pasos activada, falta el segundo paso (/auth/2fa/verificar)
-    if db.dosfa_activo(usuario["id"]):
-        return {"requiere_2fa": True, "username": usuario["username"],
-                "token_2fa": seguridad.crear_token_2fa(usuario["id"])}
     if usuario["rol"] == "cliente":
         usuario["cliente"] = db.obtener_cliente_de_usuario(usuario["id"])
     usuario["token"] = seguridad.crear_token(usuario)

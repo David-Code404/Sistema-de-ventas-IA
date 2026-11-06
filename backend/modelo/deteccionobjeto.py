@@ -23,7 +23,6 @@ import comprobante
 import historial_pdf as historial_pdf_mod
 import config
 import db
-import rutas_2fa
 import rutas_cuentas
 import rutas_pedidos
 import rutas_tienda
@@ -50,7 +49,6 @@ app.add_middleware(
 
 # Catalogo, cuentas de clientes y pedidos: modulos sin YOLO (tambien en app_tienda.py)
 app.include_router(rutas_cuentas.router)
-app.include_router(rutas_2fa.router)
 app.include_router(rutas_tienda.router)
 app.include_router(rutas_pedidos.router)
 

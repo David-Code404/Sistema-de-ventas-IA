@@ -286,11 +286,11 @@ class _MiPerfilScreenState extends State<MiPerfilScreen> {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        Text('Contraseña y seguridad',
+        Text('Contraseña',
             style: TextStyle(
                 color: AppColors.textPrimary, fontSize: 16, fontWeight: FontWeight.w700)),
         SizedBox(height: 4),
-        Text('Cambia tu contraseña o activa la verificación en dos pasos.',
+        Text('Cambia tu contraseña de acceso.',
             style: TextStyle(color: AppColors.textMuted, fontSize: 12)),
         SizedBox(height: 14),
         OutlinedButton.icon(

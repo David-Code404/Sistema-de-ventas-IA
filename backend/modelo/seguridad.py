@@ -1,39 +1,33 @@
 """
-Sesiones con token (JWT) y verificacion en dos pasos (TOTP).
+Sesiones con token (JWT) y permisos por rol.
 
 - Al iniciar sesion la API entrega un token firmado que el frontend manda en
   cada peticion (Authorization: Bearer ...).
 - AutenticacionMiddleware revisa ese token en TODAS las rutas, salvo las
   publicas, y aplica los permisos segun el rol (administrador, cajero, cliente).
-- La verificacion en dos pasos usa codigos de 6 digitos de una app autenticadora
-  (Google Authenticator, Authy...) y codigos de respaldo de un solo uso.
 
 No importa YOLO ni nada de deteccion.
 """
 
-import hashlib
 import re
-import secrets
-import time
 from datetime import datetime, timedelta, timezone
 from urllib.parse import parse_qsl, unquote, urlencode
 
 import jwt
-import pyotp
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.responses import JSONResponse
 
 import config
 
-EMISOR = "Caja Registradora IA"
 ALGORITMO = "HS256"
 HORAS_SESION = 8
-MINUTOS_2FA = 5
 
 # Clave de firma. Se define en la variable de entorno JWT_SECRET; si falta, se usa
 # una aleatoria (las sesiones se cierran cada vez que el servidor se reinicia).
 JWT_SECRET = getattr(config, "JWT_SECRET", "") or ""
 if not JWT_SECRET:
+    import secrets
+
     JWT_SECRET = secrets.token_urlsafe(48)
     print("AVISO: no hay JWT_SECRET; se usa una clave temporal (las sesiones se pierden al reiniciar).")
 
@@ -61,14 +55,6 @@ def crear_token(usuario: dict) -> str:
     return jwt.encode(datos, JWT_SECRET, algorithm=ALGORITMO)
 
 
-def crear_token_2fa(usuario_id: int) -> str:
-    """Token corto que solo sirve para completar el segundo paso del inicio de sesion."""
-    return jwt.encode(
-        {"typ": "2fa", "sub": str(usuario_id), "iat": _ahora(),
-         "exp": _ahora() + timedelta(minutes=MINUTOS_2FA)},
-        JWT_SECRET, algorithm=ALGORITMO)
-
-
 def leer_token(token: str, tipo: str = "acceso"):
     """Devuelve el contenido del token si es valido y del tipo pedido; si no, None."""
     try:
@@ -81,56 +67,6 @@ def leer_token(token: str, tipo: str = "acceso"):
 
 
 # ══════════════════════════════════════════════════════════════
-#  DOBLE FACTOR (TOTP) Y CODIGOS DE RESPALDO
-# ══════════════════════════════════════════════════════════════
-def nuevo_secreto() -> str:
-    return pyotp.random_base32()
-
-
-def uri_totp(secreto: str, nombre: str) -> str:
-    return pyotp.TOTP(secreto).provisioning_uri(name=nombre, issuer_name=EMISOR)
-
-
-def _solo_digitos(texto) -> str:
-    return re.sub(r"\D", "", str(texto or ""))
-
-
-def codigo_valido(secreto: str, codigo) -> bool:
-    """Codigo de 6 digitos de la app (se acepta 30 s antes o despues por el reloj del celular)."""
-    codigo = _solo_digitos(codigo)
-    return len(codigo) == 6 and bool(secreto) and pyotp.TOTP(secreto).verify(codigo, valid_window=1)
-
-
-def generar_codigos_respaldo(cantidad: int = 8) -> list:
-    return [f"{secrets.token_hex(2)}-{secrets.token_hex(2)}" for _ in range(cantidad)]
-
-
-def hash_codigo(codigo: str) -> str:
-    limpio = re.sub(r"[^0-9a-f]", "", str(codigo or "").lower())
-    return hashlib.sha256(limpio.encode()).hexdigest()
-
-
-# Limite de intentos fallidos del segundo paso (5 en 5 minutos por usuario)
-_fallos: dict = {}
-_MAX_FALLOS = 5
-_VENTANA = 300
-
-
-def hay_bloqueo(clave: str) -> bool:
-    ahora = time.time()
-    _fallos[clave] = [t for t in _fallos.get(clave, []) if ahora - t < _VENTANA]
-    return len(_fallos[clave]) >= _MAX_FALLOS
-
-
-def registrar_fallo(clave: str):
-    _fallos.setdefault(clave, []).append(time.time())
-
-
-def limpiar_fallos(clave: str):
-    _fallos.pop(clave, None)
-
-
-# ══════════════════════════════════════════════════════════════
 #  PERMISOS POR RUTA
 # ══════════════════════════════════════════════════════════════
 PERSONAL = {"administrador", "cajero"}
@@ -140,7 +76,6 @@ TODOS = {"administrador", "cajero", "cliente"}
 PUBLICAS = [
     ("POST", r"^/auth/login$"),
     ("POST", r"^/auth/registro$"),
-    ("POST", r"^/auth/2fa/verificar$"),
     ("GET", r"^/salud$"),
     ("GET", r"^/(docs|redoc|openapi\.json|docs/oauth2-redirect)$"),
     ("GET", r"^/productos/\d+/imagen$"),   # las imagenes se cargan sin cabeceras
@@ -148,8 +83,6 @@ PUBLICAS = [
 CUALQUIER_ROL = [
     ("GET", r"^/(productos|categorias|inventario|inventario/stock-bajo)$"),
     ("POST", r"^/auth/cambiar-password$"),
-    ("GET", r"^/auth/2fa/estado$"),
-    ("POST", r"^/auth/2fa/(preparar|activar|desactivar)$"),
     ("GET", r"^/ventas/\d+/comprobante(\.pdf)?$"),
 ]
 SOLO_CLIENTE = [("POST", r"^/pedidos$"), ("GET|PUT", r"^/mi-perfil$")]

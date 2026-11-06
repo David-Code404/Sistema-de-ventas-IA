@@ -1,19 +1,17 @@
-"""Prueba de caja negra de las sesiones con token (JWT) y la verificacion en dos pasos.
+"""Prueba de caja negra de las sesiones con token (JWT) y los permisos por rol.
 
-Uso (con el backend encendido y la migracion 002 aplicada):
-    python tests/test_dos_pasos.py [http://127.0.0.1:8000]
+Uso (con el backend encendido):
+    python tests/test_sesiones_token.py [http://127.0.0.1:8000]
 
 Crea 3 usuarios de prueba (administrador, cajero y cliente) y al final borra SOLO esos ids.
 """
 import json
 import os
 import sys
-import time
 import urllib.error
 import urllib.request
 import uuid
 
-import pyotp
 
 RAIZ = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, os.path.join(RAIZ, "backend", "modelo"))
@@ -116,60 +114,6 @@ try:
         caso("Cliente no puede hacerse pasar por administrador en el comprobante", c in (400, 403, 404), f"codigo {c}")
     else:
         caso("Comprobante suplantado (sin ventas en la base)", True, "omitida")
-
-    # ── 4. Verificacion en dos pasos ──────────────────────────
-    print("\n== Verificacion en dos pasos ==")
-    t = tokens["cajero"]
-    c, d = llamar("GET", "/auth/2fa/estado", token=t)
-    esperar("Estado inicial: desactivada", False, d.get("activo") if isinstance(d, dict) else None)
-    esperar("Activar sin preparar -> 409", 409, llamar("POST", "/auth/2fa/activar", {"codigo": "123456"}, t)[0])
-    c, d = llamar("POST", "/auth/2fa/preparar", token=t)
-    esperar("Preparar -> 200", 200, c)
-    secreto = d["secreto"]
-    caso("La URI del QR es otpauth", d["uri"].startswith("otpauth://totp/"))
-    esperar("Activar con codigo malo -> 422", 422, llamar("POST", "/auth/2fa/activar", {"codigo": "000000"}, t)[0])
-    c, d = llamar("POST", "/auth/2fa/activar", {"codigo": pyotp.TOTP(secreto).now()}, t)
-    esperar("Activar con codigo correcto -> 200", 200, c)
-    respaldo = d["codigos_respaldo"]
-    esperar("Entrega 8 codigos de respaldo", 8, len(respaldo))
-    c, d = llamar("GET", "/auth/2fa/estado", token=t)
-    esperar("Estado final: activada", True, d.get("activo"))
-
-    c, d = login(roles["cajero"]["username"], clave)
-    esperar("Login con 2FA activa -> 200", 200, c)
-    caso("Login NO entrega token de sesion todavia", d.get("requiere_2fa") is True and "token" not in d)
-    t2fa = d["token_2fa"]
-    esperar("El token temporal no sirve como sesion -> 401", 401, llamar("GET", "/productos", token=t2fa)[0])
-    esperar("Verificar con codigo malo -> 401", 401, llamar("POST", "/auth/2fa/verificar", {"token_2fa": t2fa, "codigo": "111111"})[0])
-    # evita repetir el mismo codigo TOTP del paso anterior: se usa el siguiente intervalo
-    codigo_ok = pyotp.TOTP(secreto).at(time.time() + 30)
-    c, d = llamar("POST", "/auth/2fa/verificar", {"token_2fa": t2fa, "codigo": codigo_ok})
-    esperar("Verificar con codigo correcto -> 200", 200, c)
-    caso("Entrega token de sesion", bool(d.get("token")) and d.get("rol") == "cajero")
-    esperar("La sesion nueva funciona", 200, llamar("GET", "/pedidos/pendientes", token=d.get("token"))[0])
-    esperar("Verificar con token falso -> 401", 401, llamar("POST", "/auth/2fa/verificar", {"token_2fa": "x.y.z", "codigo": codigo_ok})[0])
-
-    c, d = login(roles["cajero"]["username"], clave)
-    c, d2 = llamar("POST", "/auth/2fa/verificar", {"token_2fa": d["token_2fa"], "codigo": respaldo[0]})
-    esperar("Codigo de respaldo sirve -> 200", 200, c)
-    sesion = d2.get("token")
-    c, d = login(roles["cajero"]["username"], clave)
-    esperar("El mismo codigo de respaldo no sirve dos veces -> 401", 401,
-            llamar("POST", "/auth/2fa/verificar", {"token_2fa": d["token_2fa"], "codigo": respaldo[0]})[0])
-
-    esperar("Desactivar con clave mala -> 401", 401, llamar("POST", "/auth/2fa/desactivar", {"password": "mala", "codigo": respaldo[1]}, sesion)[0])
-    esperar("Desactivar con codigo malo -> 422", 422, llamar("POST", "/auth/2fa/desactivar", {"password": clave, "codigo": "222222"}, sesion)[0])
-    esperar("Desactivar correctamente -> 200", 200, llamar("POST", "/auth/2fa/desactivar", {"password": clave, "codigo": respaldo[1]}, sesion)[0])
-    c, d = login(roles["cajero"]["username"], clave)
-    caso("Despues de desactivar el login vuelve a ser directo", c == 200 and bool(d.get("token")) and "requiere_2fa" not in d)
-
-    # limite de intentos
-    c, d = llamar("POST", "/auth/2fa/preparar", token=d["token"])
-    esperar("Volver a preparar -> 200", 200, c)
-    esperar("Activar de nuevo", 200, llamar("POST", "/auth/2fa/activar", {"codigo": pyotp.TOTP(d["secreto"]).now()}, tokens["cajero"])[0])
-    c, d = login(roles["cajero"]["username"], clave)
-    intentos = [llamar("POST", "/auth/2fa/verificar", {"token_2fa": d["token_2fa"], "codigo": "999999"})[0] for _ in range(6)]
-    esperar("Tras 5 intentos fallidos se bloquea -> 429", 429, intentos[-1])
 finally:
     # Limpieza: solo los ids creados arriba
     conexion = db._conexion()

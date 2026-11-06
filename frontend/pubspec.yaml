@@ -40,9 +40,6 @@ dependencies:
 
   # Para que pos_screen.dart pueda hablar con el backend (crear venta, consultar carrito)
   http: ^1.2.0
-
-  # Codigo QR para la verificacion en dos pasos
-  qr_flutter: ^4.1.0
   http_parser: ^4.1.2
   file_picker: 8.1.2
   shared_preferences: ^2.5.3

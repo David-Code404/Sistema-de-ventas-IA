@@ -115,7 +115,7 @@ class _ClienteShellState extends State<ClienteShell>
                 child: Row(children: [
                   Icon(Icons.lock_reset_rounded, size: 18, color: AppColors.textSecondary),
                   SizedBox(width: 10),
-                  Text('Contraseña y seguridad'),
+                  Text('Cambiar contraseña'),
                 ]),
               ),
             ],

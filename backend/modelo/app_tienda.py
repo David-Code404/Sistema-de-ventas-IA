@@ -13,7 +13,6 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 import config
-import rutas_2fa
 import rutas_cuentas
 import rutas_pedidos
 import rutas_tienda
@@ -30,7 +29,6 @@ app.add_middleware(
 )
 
 app.include_router(rutas_cuentas.router)
-app.include_router(rutas_2fa.router)
 app.include_router(rutas_tienda.router)
 app.include_router(rutas_pedidos.router)
 
