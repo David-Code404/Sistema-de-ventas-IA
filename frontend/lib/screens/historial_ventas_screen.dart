@@ -7,12 +7,13 @@ import 'package:http/http.dart' as http;
 
 import '../config/app_config.dart';
 import '../models/estado_venta.dart';
+import '../models/session.dart';
 import '../theme/app_colors.dart';
 import '../widgets/app_shell.dart';
 import '../widgets/app_sidebar.dart';
 import '../widgets/bounded_content.dart';
 import '../widgets/comprobante_vista.dart';
-import '../widgets/descarga_sesion.dart';
+import '../widgets/descarga.dart';
 import 'detalle_venta_screen.dart';
 
 const List<String> _camposBusqueda = ['Codigo', 'Producto', 'Fecha'];
@@ -88,14 +89,9 @@ class _HistorialVentasScreenState extends State<HistorialVentasScreen> {
     setState(() => _comprobanteAmpliado = datos);
   }
 
-  Future<void> _descargarComprobante(Map<String, dynamic> datos) async {
-    final ok = await descargarPdfConSesion(
-        '${HistorialVentasScreen.apiBase}/ventas/${datos['id']}/comprobante.pdf',
-        'comprobante_${datos['id']}.pdf');
-    if (!ok && mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('No se pudo descargar el comprobante.')));
-    }
+  void _descargarComprobante(Map<String, dynamic> datos) {
+    descargarDesde(
+        '${HistorialVentasScreen.apiBase}/ventas/${datos['id']}/comprobante.pdf');
   }
 
   void _cerrarComprobante() => setState(() => _comprobanteAmpliado = null);

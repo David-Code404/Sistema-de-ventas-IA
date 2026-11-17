@@ -3,7 +3,7 @@ Pedidos de clientes en linea (estado 'pendiente', estructura de HU-18_990).
 No importan YOLO ni nada de deteccion.
 """
 
-from fastapi import APIRouter, HTTPException, Request
+from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, Field
 
 import db
@@ -25,10 +25,8 @@ class PedidoIn(BaseModel):
 
 
 @router.post("/pedidos", status_code=201)
-def crear_pedido(datos: PedidoIn, request: Request):
+def crear_pedido(datos: PedidoIn):
     """Crea el pedido. Solo valida el stock: NO lo descuenta."""
-    if request.state.usuario["id"] != datos.usuario_id:
-        raise HTTPException(status_code=403, detail="El pedido debe hacerse con tu propia cuenta.")
     try:
         return db.crear_pedido(
             datos.usuario_id,
@@ -75,10 +73,8 @@ class MarcarListoIn(BaseModel):
 
 
 @router.post("/pedidos/{pedido_id}/listo")
-def marcar_listo(pedido_id: int, datos: MarcarListoIn, request: Request):
+def marcar_listo(pedido_id: int, datos: MarcarListoIn):
     """Marca el pedido como listo para recoger y descuenta el stock."""
-    if request.state.usuario["id"] != datos.usuario_id:
-        raise HTTPException(status_code=403, detail="Debes marcar el pedido con tu propia cuenta.")
     try:
         return db.marcar_pedido_listo(pedido_id, datos.usuario_id)
     except PermissionError as e:

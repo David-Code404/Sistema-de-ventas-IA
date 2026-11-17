@@ -26,7 +26,6 @@ import db
 import rutas_cuentas
 import rutas_pedidos
 import rutas_tienda
-import seguridad
 
 # ══════════════════════════════════════════════════════════════
 #  CONFIGURACION
@@ -39,7 +38,6 @@ IMAGENES_DIR.mkdir(exist_ok=True)
 # ══════════════════════════════════════════════════════════════
 app = FastAPI(title="Caja Registradora IA - API")
 
-app.add_middleware(seguridad.AutenticacionMiddleware)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=config.CORS_ORIGINS,

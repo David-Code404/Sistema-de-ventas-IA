@@ -2,11 +2,10 @@
 Inicio de sesion y registro de clientes. No importan YOLO ni nada de deteccion.
 """
 
-from fastapi import APIRouter, HTTPException, Request
+from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 
 import db
-import seguridad
 
 router = APIRouter(tags=["cuentas"])
 
@@ -23,7 +22,6 @@ def login(datos: LoginIn):
         raise HTTPException(status_code=401, detail="Usuario o contrasena incorrectos.")
     if usuario["rol"] == "cliente":
         usuario["cliente"] = db.obtener_cliente_de_usuario(usuario["id"])
-    usuario["token"] = seguridad.crear_token(usuario)
     return usuario
 
 
@@ -34,10 +32,8 @@ class CambiarPasswordIn(BaseModel):
 
 
 @router.post("/auth/cambiar-password")
-def cambiar_password(datos: CambiarPasswordIn, request: Request):
+def cambiar_password(datos: CambiarPasswordIn):
     """Cambia la contraseña del usuario confirmando la actual (cualquier rol)."""
-    if request.state.usuario["id"] != datos.usuario_id:
-        raise HTTPException(status_code=403, detail="Solo puedes cambiar tu propia contraseña.")
     try:
         db.cambiar_password(datos.usuario_id, datos.password_actual, datos.password_nueva)
     except db.ContrasenaActualIncorrecta as e:
@@ -63,7 +59,7 @@ class RegistroClienteIn(BaseModel):
 def registrar_cliente(datos: RegistroClienteIn):
     """Crea la cuenta de un cliente. Solo crea rol 'cliente'."""
     try:
-        nuevo = db.registrar_cliente(
+        return db.registrar_cliente(
             email=datos.email,
             password=datos.password,
             nombre=datos.nombre,
@@ -72,42 +68,7 @@ def registrar_cliente(datos: RegistroClienteIn):
             telefono=datos.telefono,
             direccion=datos.direccion,
         )
-        nuevo["token"] = seguridad.crear_token(nuevo)
-        return nuevo
     except ValueError as e:
         mensaje = str(e)
         codigo = 409 if "registrad" in mensaje or "ya tiene una cuenta" in mensaje else 422
         raise HTTPException(status_code=codigo, detail=mensaje)
-
-
-class PerfilIn(BaseModel):
-    nombre: str
-    email: str
-    direccion: str
-
-
-def _ficha(cliente: dict) -> dict:
-    return {k: (v.isoformat() if hasattr(v, "isoformat") else v) for k, v in cliente.items()}
-
-
-@router.get("/mi-perfil")
-def ver_mi_perfil(request: Request):
-    """Ficha de la persona con sesion (solo clientes)."""
-    cliente = db.obtener_cliente_de_usuario(request.state.usuario["id"])
-    if cliente is None:
-        raise HTTPException(status_code=404, detail="Tu cuenta no tiene ficha de cliente.")
-    return _ficha(cliente)
-
-
-@router.put("/mi-perfil")
-def editar_mi_perfil(datos: PerfilIn, request: Request):
-    """Cambia nombre, correo y direccion de la persona con sesion (solo clientes)."""
-    try:
-        cliente = db.actualizar_perfil_cliente(
-            request.state.usuario["id"], datos.nombre, datos.email, datos.direccion)
-    except ValueError as e:
-        mensaje = str(e)
-        raise HTTPException(status_code=409 if "otra cuenta" in mensaje else 422, detail=mensaje)
-    if cliente is None:
-        raise HTTPException(status_code=404, detail="Tu cuenta no tiene ficha de cliente.")
-    return {"username": cliente["email"], "cliente": _ficha(cliente)}

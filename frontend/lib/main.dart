@@ -1,8 +1,6 @@
 import 'package:flutter/material.dart';
-import 'package:http/http.dart' as http;
 import 'config/app_config.dart';
 import 'models/carrito_cliente.dart';
-import 'models/cliente_http.dart';
 import 'navegacion.dart';
 import 'screens/cliente_shell.dart';
 import 'screens/login_screen.dart';
@@ -15,9 +13,7 @@ Future<void> main() async {
   await CarritoCliente.instance.cargar();
   Navegacion.login = () => LoginScreen(apiBase: AppConfig.apiBase);
   Navegacion.inicioCliente = () => ClienteShell(apiBase: AppConfig.apiBase);
-  // Toda peticion HTTP de la app pasa por ClienteConToken (agrega el token de sesion)
-  final interno = http.Client();
-  http.runWithClient(() => runApp(MyApp()), () => ClienteConToken(interno));
+  runApp(MyApp());
 }
 
 class MyApp extends StatelessWidget {
@@ -33,7 +29,6 @@ class MyApp extends StatelessWidget {
         return MaterialApp(
           title: 'Caja Registradora Inteligente',
           debugShowCheckedModeBanner: false,
-          navigatorKey: Navegacion.navigatorKey,
           themeMode: mode,
           theme: buildLightTheme(),
           darkTheme: buildDarkTheme(),

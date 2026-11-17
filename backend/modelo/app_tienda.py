@@ -16,11 +16,9 @@ import config
 import rutas_cuentas
 import rutas_pedidos
 import rutas_tienda
-import seguridad
 
 app = FastAPI(title="Caja Registradora IA - Tienda en linea")
 
-app.add_middleware(seguridad.AutenticacionMiddleware)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=config.CORS_ORIGINS,
