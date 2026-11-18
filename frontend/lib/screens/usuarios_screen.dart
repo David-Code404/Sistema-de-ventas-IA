@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 
 import 'package:flutter/material.dart';
@@ -32,14 +33,27 @@ IconData _iconoRol(String rol) => switch (rol) {
 class _Usuario {
   final int id;
   final String username;
+  final String nombre;
+  final String? correo;
   final String rol;
+  final bool activo;
 
-  _Usuario({required this.id, required this.username, required this.rol});
+  _Usuario({
+    required this.id,
+    required this.username,
+    required this.nombre,
+    required this.correo,
+    required this.rol,
+    required this.activo,
+  });
 
   factory _Usuario.fromJson(Map<String, dynamic> j) => _Usuario(
         id: j['id'] as int,
         username: j['username'] as String,
+        nombre: (j['nombre'] ?? j['username']) as String,
+        correo: j['correo'] as String?,
         rol: j['rol'] as String,
+        activo: j['activo'] != false,
       );
 }
 
@@ -53,13 +67,51 @@ class UsuariosScreen extends StatefulWidget {
 }
 
 class _UsuariosScreenState extends State<UsuariosScreen> {
+  final _busquedaCtrl = TextEditingController();
+  Timer? _debounce;
+  String? _rolFiltro;
   List<_Usuario> _usuarios = [];
   bool _cargando = true;
+  bool _cargadoAlgunaVez = false;
   String? _error;
+
+  // El backend comprueba que quien llama sea un administrador activo.
+  Map<String, String> get _headers =>
+      {'X-Usuario-Id': '${Session.usuarioId}'};
+  Map<String, String> get _headersJson =>
+      {..._headers, 'Content-Type': 'application/json'};
+
+  bool get _hayFiltros =>
+      _busquedaCtrl.text.trim().isNotEmpty || _rolFiltro != null;
 
   @override
   void initState() {
     super.initState();
+    _cargar();
+  }
+
+  @override
+  void dispose() {
+    _debounce?.cancel();
+    _busquedaCtrl.dispose();
+    super.dispose();
+  }
+
+  void _alEscribir(String _) {
+    setState(() {}); // actualiza el botón de limpiar
+    _debounce?.cancel();
+    _debounce = Timer(Duration(milliseconds: 350), _cargar);
+  }
+
+  void _elegirRol(String? rol) {
+    if (_rolFiltro == rol) return;
+    setState(() => _rolFiltro = rol);
+    _cargar();
+  }
+
+  void _limpiarFiltros() {
+    _busquedaCtrl.clear();
+    setState(() => _rolFiltro = null);
     _cargar();
   }
 
@@ -69,15 +121,26 @@ class _UsuariosScreenState extends State<UsuariosScreen> {
       _error = null;
     });
     try {
-      final resp = await http.get(Uri.parse('${widget.apiBase}/usuarios'));
+      final busqueda = _busquedaCtrl.text.trim();
+      final uri = Uri.parse('${widget.apiBase}/usuarios').replace(
+        queryParameters: {
+          if (busqueda.isNotEmpty) 'busqueda': busqueda,
+          if (_rolFiltro != null) 'rol': _rolFiltro!,
+        },
+      );
+      final resp = await http.get(uri, headers: _headers);
+      if (resp.statusCode == 401 || resp.statusCode == 403) {
+        throw Exception(_detalle(resp));
+      }
       if (resp.statusCode != 200) throw Exception('Backend: ${resp.statusCode}');
-      final lista = jsonDecode(resp.body) as List<dynamic>;
+      final lista = jsonDecode(utf8.decode(resp.bodyBytes)) as List<dynamic>;
       if (!mounted) return;
       setState(() {
         _usuarios = lista
             .map((e) => _Usuario.fromJson(e as Map<String, dynamic>))
             .toList();
         _cargando = false;
+        _cargadoAlgunaVez = true;
       });
     } catch (e) {
       if (!mounted) return;
@@ -115,7 +178,7 @@ class _UsuariosScreenState extends State<UsuariosScreen> {
     try {
       final resp = await http.post(
         Uri.parse('${widget.apiBase}/usuarios'),
-        headers: {'Content-Type': 'application/json'},
+        headers: _headersJson,
         body: jsonEncode(datos),
       );
       if (resp.statusCode != 201) {
@@ -123,6 +186,84 @@ class _UsuariosScreenState extends State<UsuariosScreen> {
         return;
       }
       _aviso('Usuario "${datos['username']}" creado.');
+      _cargar();
+    } catch (e) {
+      _aviso('No se pudo conectar con el servidor: $e', error: true);
+    }
+  }
+
+  Future<void> _editar(_Usuario u) async {
+    final cambios = await showDialog<Map<String, String>>(
+      context: context,
+      builder: (_) => _DialogEditarUsuario(
+        usuario: u,
+        esYo: u.id == Session.usuarioId,
+      ),
+    );
+    if (cambios == null) return;
+
+    try {
+      final resp = await http.put(
+        Uri.parse('${widget.apiBase}/usuarios/${u.id}'),
+        headers: _headersJson,
+        body: jsonEncode(cambios),
+      );
+      if (resp.statusCode != 200) {
+        _aviso(_detalle(resp), error: true);
+        return;
+      }
+      if (u.id == Session.usuarioId && cambios.containsKey('username')) {
+        Session.username = cambios['username'];
+      }
+      _aviso('Usuario "${cambios['username'] ?? u.username}" actualizado.');
+      _cargar();
+    } catch (e) {
+      _aviso('No se pudo conectar con el servidor: $e', error: true);
+    }
+  }
+
+  Future<void> _cambiarEstado(_Usuario u) async {
+    final activar = !u.activo;
+    if (!activar) {
+      final ok = await showDialog<bool>(
+        context: context,
+        builder: (ctx) => AlertDialog(
+          backgroundColor: AppColors.surfaceAlt,
+          title: Text('Desactivar usuario',
+              style: TextStyle(
+                  color: AppColors.textPrimary,
+                  fontSize: 15,
+                  fontWeight: FontWeight.w600)),
+          content: Text(
+              '"${u.nombre}" ya no podrá iniciar sesión. '
+              'Puedes volver a activarlo cuando quieras.',
+              style: TextStyle(color: AppColors.textSecondary)),
+          actions: [
+            TextButton(
+                onPressed: () => Navigator.pop(ctx, false),
+                child: Text('Cancelar')),
+            FilledButton(
+                onPressed: () => Navigator.pop(ctx, true),
+                child: Text('Desactivar')),
+          ],
+        ),
+      );
+      if (ok != true) return;
+    }
+
+    try {
+      final resp = await http.patch(
+        Uri.parse('${widget.apiBase}/usuarios/${u.id}/activo'),
+        headers: _headersJson,
+        body: jsonEncode({'activo': activar}),
+      );
+      if (resp.statusCode != 200) {
+        _aviso(_detalle(resp), error: true);
+        return;
+      }
+      _aviso(activar
+          ? 'Usuario "${u.nombre}" activado.'
+          : 'Usuario "${u.nombre}" desactivado.');
       _cargar();
     } catch (e) {
       _aviso('No se pudo conectar con el servidor: $e', error: true);
@@ -146,7 +287,7 @@ class _UsuariosScreenState extends State<UsuariosScreen> {
         appBar: AppBar(title: Text('Usuarios')),
         body: BoundedContent(
           maxWidth: 780,
-          child: _cargando && _usuarios.isEmpty
+          child: _cargando && !_cargadoAlgunaVez
               ? Center(
                   child: CircularProgressIndicator(color: AppColors.accent))
               : RefreshIndicator(
@@ -155,6 +296,8 @@ class _UsuariosScreenState extends State<UsuariosScreen> {
                     padding: const EdgeInsets.fromLTRB(16, 16, 16, 24),
                     children: [
                       _buildEncabezado(),
+                      SizedBox(height: 16),
+                      _buildFiltros(),
                       SizedBox(height: 16),
                       _buildLista(),
                     ],
@@ -182,7 +325,9 @@ class _UsuariosScreenState extends State<UsuariosScreen> {
                 fontSize: 16,
                 fontWeight: FontWeight.w600)),
         Text(
-          '${_usuarios.length} usuarios registrados',
+          _hayFiltros
+              ? '${_usuarios.length} ${_usuarios.length == 1 ? 'resultado' : 'resultados'}'
+              : '${_usuarios.length} usuarios registrados',
           style: TextStyle(color: AppColors.textMuted, fontSize: 12),
         ),
       ],
@@ -213,6 +358,75 @@ class _UsuariosScreenState extends State<UsuariosScreen> {
     });
   }
 
+  Widget _buildFiltros() {
+    const opciones = <(String?, String)>[
+      (null, 'Todos'),
+      ('administrador', 'Administrador'),
+      ('cajero', 'Cajero'),
+      ('cliente', 'Cliente'),
+    ];
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        TextField(
+          controller: _busquedaCtrl,
+          onChanged: _alEscribir,
+          style: TextStyle(color: AppColors.textPrimary, fontSize: 14),
+          decoration: InputDecoration(
+            hintText: 'Buscar por nombre o correo',
+            prefixIcon: Icon(Icons.search_rounded, size: 18),
+            suffixIcon: _busquedaCtrl.text.isEmpty
+                ? null
+                : IconButton(
+                    tooltip: 'Borrar búsqueda',
+                    icon: Icon(Icons.close_rounded, size: 18),
+                    onPressed: () {
+                      _busquedaCtrl.clear();
+                      setState(() {});
+                      _cargar();
+                    },
+                  ),
+          ),
+        ),
+        SizedBox(height: 10),
+        Wrap(
+          spacing: 6,
+          runSpacing: 6,
+          children: [
+            for (final o in opciones) _chipRol(o.$1, o.$2),
+          ],
+        ),
+      ],
+    );
+  }
+
+  Widget _chipRol(String? rol, String etiqueta) {
+    final activo = _rolFiltro == rol;
+    return InkWell(
+      borderRadius: BorderRadius.circular(20),
+      onTap: () => _elegirRol(rol),
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 7),
+        decoration: BoxDecoration(
+          color: activo
+              ? AppColors.accent.withValues(alpha: 0.16)
+              : AppColors.surface,
+          borderRadius: BorderRadius.circular(20),
+          border: Border.all(
+              color: activo
+                  ? AppColors.accent.withValues(alpha: 0.6)
+                  : AppColors.border),
+        ),
+        child: Text(etiqueta,
+            style: TextStyle(
+                color: activo ? AppColors.accent : AppColors.textSecondary,
+                fontSize: 12.5,
+                fontWeight: FontWeight.w600)),
+      ),
+    );
+  }
+
   Widget _buildLista() {
     if (_error != null) {
       return Center(
@@ -239,8 +453,22 @@ class _UsuariosScreenState extends State<UsuariosScreen> {
       return Center(
         child: Padding(
           padding: EdgeInsets.all(24),
-          child: Text('Aún no hay usuarios.',
-              style: TextStyle(color: AppColors.textMuted)),
+          child: _hayFiltros
+              ? Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Text('No se encontraron usuarios con ese criterio.',
+                        textAlign: TextAlign.center,
+                        style: TextStyle(color: AppColors.textMuted)),
+                    SizedBox(height: 10),
+                    TextButton(
+                      onPressed: _limpiarFiltros,
+                      child: Text('Quitar filtros'),
+                    ),
+                  ],
+                )
+              : Text('Aún no hay usuarios.',
+                  style: TextStyle(color: AppColors.textMuted)),
         ),
       );
     }
@@ -249,7 +477,7 @@ class _UsuariosScreenState extends State<UsuariosScreen> {
 
   Widget _fila(_Usuario u) {
     final color = _colorRol(u.rol);
-    final esYo = u.username == Session.username;
+    final esYo = u.id == Session.usuarioId;
 
     return Padding(
       padding: const EdgeInsets.only(bottom: 10),
@@ -273,14 +501,29 @@ class _UsuariosScreenState extends State<UsuariosScreen> {
             ),
             SizedBox(width: 14),
             Expanded(
-              child: Text(
-                esYo ? '${u.username}  (tú)' : u.username,
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-                style: TextStyle(
-                    color: AppColors.textPrimary,
-                    fontWeight: FontWeight.w600,
-                    fontSize: 14),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    esYo ? '${u.nombre}  (tú)' : u.nombre,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: TextStyle(
+                        color: u.activo
+                            ? AppColors.textPrimary
+                            : AppColors.textMuted,
+                        fontWeight: FontWeight.w600,
+                        fontSize: 14),
+                  ),
+                  if (u.correo != null && u.correo != u.nombre)
+                    Text(
+                      u.correo!,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style:
+                          TextStyle(color: AppColors.textMuted, fontSize: 12),
+                    ),
+                ],
               ),
             ),
             Container(
@@ -294,11 +537,62 @@ class _UsuariosScreenState extends State<UsuariosScreen> {
                   style: TextStyle(
                       color: color, fontSize: 11, fontWeight: FontWeight.w600)),
             ),
+            SizedBox(width: 8),
+            _chipEstado(u.activo),
+            PopupMenuButton<String>(
+              tooltip: 'Acciones',
+              icon: Icon(Icons.more_vert_rounded,
+                  size: 18, color: AppColors.textMuted),
+              color: AppColors.surfaceAlt,
+              onSelected: (accion) {
+                if (accion == 'editar') _editar(u);
+                if (accion == 'estado') _cambiarEstado(u);
+              },
+              itemBuilder: (_) => [
+                PopupMenuItem(
+                  value: 'editar',
+                  child: Row(children: [
+                    Icon(Icons.edit_outlined, size: 17),
+                    SizedBox(width: 10),
+                    Text('Editar'),
+                  ]),
+                ),
+                PopupMenuItem(
+                  value: 'estado',
+                  // No puedes desactivar tu propia cuenta
+                  enabled: !(esYo && u.activo),
+                  child: Row(children: [
+                    Icon(
+                        u.activo
+                            ? Icons.block_rounded
+                            : Icons.check_circle_outline_rounded,
+                        size: 17),
+                    SizedBox(width: 10),
+                    Text(u.activo ? 'Desactivar' : 'Activar'),
+                  ]),
+                ),
+              ],
+            ),
           ],
         ),
       ),
     );
   }
+}
+
+Widget _chipEstado(bool activo) {
+  final color = activo ? AppColors.accent : AppColors.danger;
+  return Container(
+    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+    decoration: BoxDecoration(
+      color: color.withValues(alpha: 0.14),
+      borderRadius: BorderRadius.circular(20),
+      border: Border.all(color: color.withValues(alpha: 0.4)),
+    ),
+    child: Text(activo ? 'Activo' : 'Inactivo',
+        style:
+            TextStyle(color: color, fontSize: 11, fontWeight: FontWeight.w600)),
+  );
 }
 
 // ── Diálogo: nuevo usuario ────────────────────────────────────
@@ -432,6 +726,151 @@ class _DialogNuevoUsuarioState extends State<_DialogNuevoUsuario> {
             });
           },
           child: Text('Crear usuario'),
+        ),
+      ],
+    );
+  }
+}
+
+// ── Diálogo: editar usuario ───────────────────────────────────
+class _DialogEditarUsuario extends StatefulWidget {
+  final _Usuario usuario;
+  final bool esYo;
+
+  const _DialogEditarUsuario({required this.usuario, required this.esYo});
+
+  @override
+  State<_DialogEditarUsuario> createState() => _DialogEditarUsuarioState();
+}
+
+class _DialogEditarUsuarioState extends State<_DialogEditarUsuario> {
+  final _formKey = GlobalKey<FormState>();
+  late final TextEditingController _userCtrl;
+  final _passCtrl = TextEditingController();
+  late String _rol;
+  bool _ocultar = true;
+
+  @override
+  void initState() {
+    super.initState();
+    _userCtrl = TextEditingController(text: widget.usuario.username);
+    _rol = widget.usuario.rol;
+  }
+
+  @override
+  void dispose() {
+    _userCtrl.dispose();
+    _passCtrl.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AlertDialog(
+      backgroundColor: AppColors.surfaceAlt,
+      title: Text('Editar usuario',
+          style: TextStyle(
+              color: AppColors.textPrimary,
+              fontSize: 15,
+              fontWeight: FontWeight.w600)),
+      content: SizedBox(
+        width: 400,
+        child: SingleChildScrollView(
+          child: Form(
+            key: _formKey,
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                TextFormField(
+                  controller: _userCtrl,
+                  autofocus: true,
+                  style:
+                      TextStyle(color: AppColors.textPrimary, fontSize: 14),
+                  decoration: InputDecoration(
+                    labelText: 'Usuario',
+                    prefixIcon: Icon(Icons.person_outline_rounded, size: 17),
+                  ),
+                  validator: (v) {
+                    final t = (v ?? '').trim();
+                    if (t.isEmpty) return 'El usuario es obligatorio';
+                    if (!RegExp(r'^[A-Za-z0-9_.-]{3,50}$').hasMatch(t)) {
+                      return '3 a 50 caracteres: letras, números, . - _';
+                    }
+                    return null;
+                  },
+                ),
+                SizedBox(height: 12),
+                DropdownButtonFormField<String>(
+                  value: _rol,
+                  dropdownColor: AppColors.surfaceAlt,
+                  style:
+                      TextStyle(color: AppColors.textPrimary, fontSize: 14),
+                  decoration: InputDecoration(
+                    labelText: 'Rol',
+                    prefixIcon: Icon(Icons.badge_outlined, size: 17),
+                    helperText: widget.esYo
+                        ? 'No puedes cambiar tu propio rol'
+                        : null,
+                  ),
+                  items: _roles
+                      .map((r) => DropdownMenuItem(
+                          value: r, child: Text(_etiquetaRol(r))))
+                      .toList(),
+                  // Un administrador no puede quitarse su propio rol
+                  onChanged: widget.esYo
+                      ? null
+                      : (v) => setState(() => _rol = v ?? _rol),
+                ),
+                SizedBox(height: 12),
+                TextFormField(
+                  controller: _passCtrl,
+                  obscureText: _ocultar,
+                  style:
+                      TextStyle(color: AppColors.textPrimary, fontSize: 14),
+                  decoration: InputDecoration(
+                    labelText: 'Nueva contraseña (opcional)',
+                    prefixIcon: Icon(Icons.lock_outline_rounded, size: 17),
+                    helperText: 'Déjala vacía para no cambiarla',
+                    suffixIcon: IconButton(
+                      icon: Icon(
+                          _ocultar
+                              ? Icons.visibility_outlined
+                              : Icons.visibility_off_outlined,
+                          size: 18),
+                      onPressed: () => setState(() => _ocultar = !_ocultar),
+                    ),
+                  ),
+                  validator: (v) {
+                    final t = v ?? '';
+                    if (t.isNotEmpty && t.length < 6) {
+                      return 'Mínimo 6 caracteres';
+                    }
+                    return null;
+                  },
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+      actions: [
+        TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: Text('Cancelar')),
+        FilledButton(
+          onPressed: () {
+            if (!_formKey.currentState!.validate()) return;
+            // Solo se envía lo que cambió
+            final cambios = <String, String>{};
+            final usuario = _userCtrl.text.trim();
+            if (usuario != widget.usuario.username) {
+              cambios['username'] = usuario;
+            }
+            if (_rol != widget.usuario.rol) cambios['rol'] = _rol;
+            if (_passCtrl.text.isNotEmpty) cambios['password'] = _passCtrl.text;
+            Navigator.pop(context, cambios.isEmpty ? null : cambios);
+          },
+          child: Text('Guardar cambios'),
         ),
       ],
     );

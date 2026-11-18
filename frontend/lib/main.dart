@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/semantics.dart';
 import 'config/app_config.dart';
 import 'models/carrito_cliente.dart';
 import 'navegacion.dart';
@@ -7,8 +8,16 @@ import 'screens/login_screen.dart';
 import 'theme/app_theme.dart';
 import 'theme/theme_controller.dart';
 
+/// Pruebas Cypress: compilar con --dart-define=E2E=true deja activada la capa
+/// de accesibilidad (semantics) desde el inicio, para que Cypress pueda leer
+/// textos y botones. En la app normal no cambia nada.
+const bool _modoE2E = bool.fromEnvironment('E2E');
+
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
+  if (_modoE2E) {
+    SemanticsBinding.instance.ensureSemantics();
+  }
   await ThemeController.instance.cargar();
   await CarritoCliente.instance.cargar();
   Navegacion.login = () => LoginScreen(apiBase: AppConfig.apiBase);

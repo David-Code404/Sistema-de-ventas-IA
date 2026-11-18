@@ -1173,7 +1173,7 @@ def login_usuario(username: str, password: str):
     try:
         cursor = conexion.cursor(dictionary=True)
         cursor.execute(
-            "SELECT id, username, password, rol FROM usuarios WHERE username = %s",
+            "SELECT id, username, password, rol, activo FROM usuarios WHERE username = %s",
             (username.strip(),),
         )
         usuario = cursor.fetchone()
@@ -1182,6 +1182,8 @@ def login_usuario(username: str, password: str):
         ok = _bcrypt.checkpw(password.encode(), usuario["password"].encode())
         if not ok:
             return None
+        if not usuario["activo"]:
+            return None  # cuenta desactivada: no puede iniciar sesion
         return {
             "id":       usuario["id"],
             "username": usuario["username"],
@@ -1491,17 +1493,52 @@ class UsuarioDuplicado(Exception):
     """El nombre de usuario ya existe."""
 
 
-def listar_usuarios():
-    """Devuelve todos los usuarios SIN la contraseña."""
+def listar_usuarios(busqueda=None, rol=None):
+    """
+    Devuelve los usuarios SIN la contraseña, con filtros opcionales:
+    - busqueda: texto a buscar en nombre o correo (sin distinguir mayúsculas).
+    - rol: administrador | cajero | cliente.
+    El nombre y el correo salen de la ficha en `clientes` cuando existe; si no,
+    el nombre es el usuario y el correo es el usuario solo si parece un correo.
+    """
+    busqueda = (busqueda or "").strip()
+    rol = (rol or "").strip().lower() or None
+    if rol is not None and rol not in ROLES_VALIDOS:
+        raise ValueError("Rol no válido.")
+
+    condiciones, parametros = [], []
+    if busqueda:
+        patron = "%" + busqueda.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_") + "%"
+        condiciones.append("(u.username LIKE %s OR c.nombre LIKE %s OR c.email LIKE %s)")
+        parametros += [patron, patron, patron]
+    if rol:
+        condiciones.append("u.rol = %s")
+        parametros.append(rol)
+    where_sql = ("WHERE " + " AND ".join(condiciones)) if condiciones else ""
+
     conexion = _conexion()
     try:
         cursor = conexion.cursor(dictionary=True)
         cursor.execute(
-            "SELECT id, username, rol, creado_en FROM usuarios "
-            "ORDER BY FIELD(rol, 'administrador', 'cajero', 'cliente'), username"
+            f"""
+            SELECT
+                u.id,
+                u.username,
+                COALESCE(c.nombre, u.username) AS nombre,
+                COALESCE(c.email, IF(LOCATE('@', u.username) > 0, u.username, NULL)) AS correo,
+                u.rol,
+                u.activo,
+                u.creado_en
+            FROM usuarios u
+            LEFT JOIN clientes c ON c.usuario_id = u.id
+            {where_sql}
+            ORDER BY FIELD(u.rol, 'administrador', 'cajero', 'cliente'), nombre
+            """,
+            parametros,
         )
         filas = cursor.fetchall()
         for f in filas:
+            f["activo"] = bool(f["activo"])
             f["creado_en"] = f["creado_en"].isoformat() if f["creado_en"] else None
         return filas
     finally:
@@ -1544,5 +1581,109 @@ def crear_usuario(username: str, password: str, rol: str) -> dict:
             raise UsuarioDuplicado(f'El usuario "{username}" ya existe.')
         conexion.commit()
         return {"id": cursor.lastrowid, "username": username, "rol": rol}
+    finally:
+        conexion.close()
+
+
+
+def es_admin_activo(usuario_id: int) -> bool:
+    """True si el usuario existe, es administrador y su cuenta esta activa."""
+    conexion = _conexion()
+    try:
+        cursor = conexion.cursor(dictionary=True)
+        cursor.execute("SELECT rol, activo FROM usuarios WHERE id = %s", (usuario_id,))
+        fila = cursor.fetchone()
+        return bool(fila and fila["rol"] == "administrador" and fila["activo"])
+    finally:
+        conexion.close()
+
+
+def actualizar_usuario(usuario_id: int, actor_id: int, username=None, rol=None,
+                       password=None) -> dict:
+    """
+    Edita el nombre de usuario, el rol y/o la contrasena (opcional) de un usuario.
+    Lanza LookupError si no existe, ValueError si los datos no son validos o si el
+    administrador intenta quitarse su propio rol, y UsuarioDuplicado si el
+    nombre de usuario ya lo usa otra cuenta.
+    """
+    import bcrypt as _bcrypt
+    from mysql.connector import errors as _errores
+
+    campos, valores = [], []
+
+    if username is not None:
+        username = username.strip()
+        if not _USERNAME_RE.match(username):
+            raise ValueError(
+                "El usuario debe tener entre 3 y 50 caracteres: "
+                "letras, números, punto, guion o guion bajo."
+            )
+        campos.append("username = %s")
+        valores.append(username)
+
+    if rol is not None:
+        if rol not in ROLES_VALIDOS:
+            raise ValueError("Rol no válido.")
+        if usuario_id == actor_id and rol != "administrador":
+            raise ValueError("No puedes quitarte tu propio rol de administrador.")
+        campos.append("rol = %s")
+        valores.append(rol)
+
+    if password:
+        if len(password) < 6:
+            raise ValueError("La contraseña debe tener al menos 6 caracteres.")
+        if len(password.encode()) > 72:
+            raise ValueError("La contraseña es demasiado larga (máximo 72 bytes).")
+        campos.append("password = %s")
+        valores.append(_bcrypt.hashpw(password.encode(), _bcrypt.gensalt()).decode())
+
+    if not campos:
+        raise ValueError("No hay cambios que guardar.")
+
+    conexion = _conexion()
+    try:
+        cursor = conexion.cursor(dictionary=True)
+        cursor.execute("SELECT id FROM usuarios WHERE id = %s", (usuario_id,))
+        if cursor.fetchone() is None:
+            raise LookupError("Usuario no encontrado.")
+        try:
+            cursor.execute(
+                "UPDATE usuarios SET " + ", ".join(campos) + " WHERE id = %s",
+                valores + [usuario_id],
+            )
+        except _errores.IntegrityError:
+            raise UsuarioDuplicado(f'El usuario "{username}" ya existe.')
+        conexion.commit()
+        cursor.execute(
+            "SELECT id, username, rol, activo FROM usuarios WHERE id = %s", (usuario_id,)
+        )
+        fila = cursor.fetchone()
+        fila["activo"] = bool(fila["activo"])
+        return fila
+    finally:
+        conexion.close()
+
+
+def cambiar_estado_usuario(usuario_id: int, actor_id: int, activo: bool) -> dict:
+    """
+    Activa o desactiva una cuenta. Un usuario desactivado no puede iniciar sesion.
+    Un administrador no puede desactivar su propia cuenta (asi siempre queda al
+    menos un administrador activo).
+    """
+    if usuario_id == actor_id and not activo:
+        raise ValueError("No puedes desactivar tu propia cuenta.")
+
+    conexion = _conexion()
+    try:
+        cursor = conexion.cursor(dictionary=True)
+        cursor.execute("SELECT id FROM usuarios WHERE id = %s", (usuario_id,))
+        if cursor.fetchone() is None:
+            raise LookupError("Usuario no encontrado.")
+        cursor.execute(
+            "UPDATE usuarios SET activo = %s WHERE id = %s",
+            (1 if activo else 0, usuario_id),
+        )
+        conexion.commit()
+        return {"id": usuario_id, "activo": bool(activo)}
     finally:
         conexion.close()

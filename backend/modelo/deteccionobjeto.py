@@ -13,7 +13,7 @@ import time
 import uuid
 from pathlib import Path
 
-from fastapi import BackgroundTasks, FastAPI, File, Form, HTTPException, Query, Response, UploadFile
+from fastapi import BackgroundTasks, Depends, FastAPI, File, Form, Header, HTTPException, Query, Response, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 from mysql.connector import Error as MySQLError
@@ -464,20 +464,71 @@ def actualizar_cliente(documento: str, datos: ClienteEditarIn):
 # ══════════════════════════════════════════════════════════════
 #  USUARIOS
 # ══════════════════════════════════════════════════════════════
+def requiere_admin(x_usuario_id: int | None = Header(default=None)) -> int:
+    """
+    Solo deja pasar a un administrador con la cuenta activa. El frontend envia
+    su id en la cabecera X-Usuario-Id y aqui se comprueba en la base de datos.
+    Devuelve el id del administrador que hace la peticion.
+    """
+    if x_usuario_id is None:
+        raise HTTPException(status_code=401, detail="Inicia sesion para continuar.")
+    if not db.es_admin_activo(x_usuario_id):
+        raise HTTPException(status_code=403, detail="Solo el administrador puede gestionar usuarios.")
+    return x_usuario_id
+
+
 class UsuarioNuevo(BaseModel):
     username: str
     password: str
     rol: str
 
+class UsuarioEditar(BaseModel):
+    username: str | None = None
+    rol: str | None = None
+    password: str | None = None
+
+class UsuarioEstado(BaseModel):
+    activo: bool
+
 @app.get("/usuarios")
-def api_listar_usuarios():
-    return db.listar_usuarios()
+def api_listar_usuarios(busqueda: str | None = None, rol: str | None = None,
+                        _admin: int = Depends(requiere_admin)):
+    """Lista de usuarios; se puede buscar por nombre/correo y filtrar por rol."""
+    try:
+        return db.listar_usuarios(busqueda=busqueda, rol=rol)
+    except ValueError as e:
+        raise HTTPException(status_code=422, detail=str(e))
 
 @app.post("/usuarios", status_code=201)
-def api_crear_usuario(datos: UsuarioNuevo):
+def api_crear_usuario(datos: UsuarioNuevo, _admin: int = Depends(requiere_admin)):
     try:
         return db.crear_usuario(datos.username, datos.password, datos.rol)
     except db.UsuarioDuplicado as e:
         raise HTTPException(status_code=409, detail=str(e))
+    except ValueError as e:
+        raise HTTPException(status_code=422, detail=str(e))
+
+@app.put("/usuarios/{usuario_id}")
+def api_editar_usuario(usuario_id: int, datos: UsuarioEditar,
+                       admin_id: int = Depends(requiere_admin)):
+    try:
+        return db.actualizar_usuario(
+            usuario_id, admin_id,
+            username=datos.username, rol=datos.rol, password=datos.password,
+        )
+    except LookupError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+    except db.UsuarioDuplicado as e:
+        raise HTTPException(status_code=409, detail=str(e))
+    except ValueError as e:
+        raise HTTPException(status_code=422, detail=str(e))
+
+@app.patch("/usuarios/{usuario_id}/activo")
+def api_estado_usuario(usuario_id: int, datos: UsuarioEstado,
+                       admin_id: int = Depends(requiere_admin)):
+    try:
+        return db.cambiar_estado_usuario(usuario_id, admin_id, datos.activo)
+    except LookupError as e:
+        raise HTTPException(status_code=404, detail=str(e))
     except ValueError as e:
         raise HTTPException(status_code=422, detail=str(e))
