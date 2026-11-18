@@ -61,6 +61,25 @@ class _Comprobante extends StatelessWidget {
     return (v == null || v.isEmpty) ? null : v;
   }
 
+  /// HU-26 1450: precio normal si la linea se cobro con promocion, o null.
+  double? _precioOriginal(Map<String, dynamic> it) {
+    final original = double.tryParse('${it['precio_original'] ?? ''}');
+    if (original == null || original <= _n(it['precio_unitario'])) return null;
+    return original;
+  }
+
+  /// HU-26 1450: ahorro total de la venta por promociones.
+  double _ahorro(List<Map<String, dynamic>> items) {
+    var total = 0.0;
+    for (final it in items) {
+      final original = _precioOriginal(it);
+      if (original != null) {
+        total += (original - _n(it['precio_unitario'])) * _n(it['cantidad']);
+      }
+    }
+    return total;
+  }
+
   @override
   Widget build(BuildContext context) {
     final creado = DateTime.tryParse(datos['creado_en']?.toString() ?? '');
@@ -74,6 +93,7 @@ class _Comprobante extends StatelessWidget {
     final metodo = datos['metodo_pago']?.toString() ?? '';
     final factura = datos['factura'] == true || datos['factura'] == 1;
     final cajero = _texto('cajero');
+    final ahorro = _ahorro(items);
 
     return Container(
       decoration: BoxDecoration(
@@ -106,6 +126,10 @@ class _Comprobante extends StatelessWidget {
                     _fila('Confirmacion', 'Pago confirmado por el cajero'),
                 ]),
                 SizedBox(height: grande ? 18 : 14),
+                if (ahorro > 0.001) ...[
+                  _ahorroPromociones(ahorro),
+                  SizedBox(height: grande ? 12 : 10),
+                ],
                 _total(),
               ],
             ),
@@ -288,16 +312,84 @@ class _Comprobante extends StatelessWidget {
           padding: const EdgeInsets.symmetric(vertical: 4),
           child: fila([
             Text('${it['cantidad']}', style: celda),
-            Text('${it['nombre']}', style: celda, overflow: TextOverflow.ellipsis),
-            Text(_bs(it['precio_unitario']),
-                style: celda.copyWith(color: AppColors.textSecondary),
-                textAlign: TextAlign.right),
+            _celdaProducto(it, celda),
+            _celdaPrecio(it, celda),
             Text(_bs(it['subtotal']),
                 style: celda.copyWith(fontWeight: FontWeight.w600),
                 textAlign: TextAlign.right),
           ]),
         ),
     ];
+  }
+
+  /// HU-26 1450: nombre del producto y, si tuvo promocion, "OFERTA -20%".
+  Widget _celdaProducto(Map<String, dynamic> it, TextStyle celda) {
+    final original = _precioOriginal(it);
+    final nombre = Text('${it['nombre']}', style: celda, overflow: TextOverflow.ellipsis);
+    if (original == null) return nombre;
+    final pct = ((1 - _n(it['precio_unitario']) / original) * 100).round();
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        nombre,
+        Text('OFERTA -$pct%',
+            style: TextStyle(
+                color: AppColors.danger,
+                fontSize: _t(9.5),
+                fontWeight: FontWeight.w800)),
+      ],
+    );
+  }
+
+  /// HU-26 1450: precio cobrado y, debajo, el precio normal tachado.
+  Widget _celdaPrecio(Map<String, dynamic> it, TextStyle celda) {
+    final cobrado = Text(_bs(it['precio_unitario']),
+        style: celda.copyWith(color: AppColors.textSecondary),
+        textAlign: TextAlign.right);
+    final original = _precioOriginal(it);
+    if (original == null) return cobrado;
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.end,
+      children: [
+        cobrado,
+        Text(_bs(original),
+            textAlign: TextAlign.right,
+            style: TextStyle(
+                color: AppColors.textMuted,
+                fontSize: _t(10.5),
+                decoration: TextDecoration.lineThrough,
+                decorationColor: AppColors.textMuted)),
+      ],
+    );
+  }
+
+  Widget _ahorroPromociones(double ahorro) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+      decoration: BoxDecoration(
+        color: AppColors.danger.withValues(alpha: 0.08),
+        borderRadius: BorderRadius.circular(10),
+        border: Border.all(color: AppColors.danger.withValues(alpha: 0.35)),
+      ),
+      child: Row(
+        children: [
+          Icon(Icons.local_offer_outlined, size: _t(16), color: AppColors.danger),
+          SizedBox(width: 8),
+          Expanded(
+            child: Text('Ahorro por promociones',
+                style: TextStyle(
+                    color: AppColors.danger,
+                    fontSize: _t(12.5),
+                    fontWeight: FontWeight.w600)),
+          ),
+          Text('-${_bs(ahorro)}',
+              style: TextStyle(
+                  color: AppColors.danger,
+                  fontSize: _t(13.5),
+                  fontWeight: FontWeight.w800)),
+        ],
+      ),
+    );
   }
 
   Widget _seccion(String titulo, List<Widget> hijos) {

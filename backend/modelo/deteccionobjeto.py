@@ -25,6 +25,8 @@ import config
 import db
 import rutas_cuentas
 import rutas_pedidos
+import rutas_promociones
+import rutas_historial_compras
 import rutas_tienda
 
 # ══════════════════════════════════════════════════════════════
@@ -49,6 +51,8 @@ app.add_middleware(
 app.include_router(rutas_cuentas.router)
 app.include_router(rutas_tienda.router)
 app.include_router(rutas_pedidos.router)
+app.include_router(rutas_promociones.router)
+app.include_router(rutas_historial_compras.router)
 
 # ══════════════════════════════════════════════════════════════
 #  AUTENTICACION

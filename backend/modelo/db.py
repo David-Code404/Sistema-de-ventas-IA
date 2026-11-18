@@ -58,6 +58,7 @@ def obtener_carrito(venta_id):
                 p.nombre,
                 dv.cantidad,
                 dv.precio_unitario,
+                dv.precio_original,  -- HU-26 1450: precio normal si hubo promocion
                 dv.subtotal
             FROM detalle_venta dv
             JOIN productos p ON p.id = dv.producto_id
@@ -227,10 +228,13 @@ def crear_pedido(usuario_id: int, items: list, nota=None,
     """
     Registra el pedido de un cliente con estado 'pendiente'.
     items: lista de {"producto_id": int, "cantidad": int}.
-    El precio de cada producto se toma de la base de datos.
+    El precio de cada producto se toma de la base de datos, con la
+    promocion vigente si la tiene (HU-26 1450).
     Solo VALIDA el stock: se descuenta cuando el cajero confirma el pedido.
     Si no llegan nombre o telefono, se toman de la ficha del cliente.
     """
+    import promociones as _promociones  # HU-26 1450
+
     if not items:
         raise ValueError("Tu carrito esta vacio. Agrega al menos un producto.")
 
@@ -278,9 +282,12 @@ def crear_pedido(usuario_id: int, items: list, nota=None,
                 raise LookupError(f"El producto {pid} no existe o no esta disponible.")
             if cant > int(p["stock"]):
                 raise ValueError(f"No hay stock suficiente de {p['nombre']} (quedan {p['stock']}).")
-            precio = float(p["precio"])
+            # HU-26 1450: precio con la promocion vigente, si la hay
+            cobro = _promociones.precio_a_cobrar(pid, p["precio"], conexion)
+            precio = cobro["precio"]
             total += precio * cant
-            lineas.append((pid, p["nombre"], cant, precio))
+            lineas.append((pid, p["nombre"], cant, precio,
+                           cobro["precio_original"], cobro["promocion_id"]))
 
         cursor.execute(
             "INSERT INTO ventas (estado, total, cliente_usuario_id, cliente_nombre, "
@@ -288,11 +295,12 @@ def crear_pedido(usuario_id: int, items: list, nota=None,
             (round(total, 2), usuario_id, cliente_nombre, cliente_telefono, nota),
         )
         venta_id = cursor.lastrowid
-        for pid, _, cant, precio in lineas:
+        for pid, _, cant, precio, precio_original, promocion_id in lineas:
             cursor.execute(
-                "INSERT INTO detalle_venta (venta_id, producto_id, cantidad, precio_unitario) "
-                "VALUES (%s, %s, %s, %s)",
-                (venta_id, pid, cant, precio),
+                "INSERT INTO detalle_venta (venta_id, producto_id, cantidad, precio_unitario, "
+                "precio_original, promocion_id) "  # HU-26 1450
+                "VALUES (%s, %s, %s, %s, %s, %s)",
+                (venta_id, pid, cant, precio, precio_original, promocion_id),
             )
         cursor.execute("SELECT creado_en FROM ventas WHERE id = %s", (venta_id,))
         creado_en = cursor.fetchone()["creado_en"]
@@ -307,8 +315,9 @@ def crear_pedido(usuario_id: int, items: list, nota=None,
             "nota": nota,
             "items": [
                 {"producto_id": pid, "nombre": nom, "cantidad": cant,
-                 "precio_unitario": precio, "subtotal": round(precio * cant, 2)}
-                for pid, nom, cant, precio in lineas
+                 "precio_unitario": precio, "precio_original": precio_original,
+                 "subtotal": round(precio * cant, 2)}
+                for pid, nom, cant, precio, precio_original, _ in lineas
             ],
         }
     except Exception:
@@ -545,7 +554,9 @@ def obtener_comprobante(venta_id: int):
             return None
         cursor.execute(
             """
-            SELECT p.nombre, dv.cantidad, dv.precio_unitario, dv.subtotal
+            SELECT p.nombre, dv.cantidad, dv.precio_unitario,
+                   dv.precio_original,  -- HU-26 1450
+                   dv.subtotal
             FROM detalle_venta dv
             JOIN productos p ON p.id = dv.producto_id
             WHERE dv.venta_id = %s
@@ -963,16 +974,28 @@ def obtener_producto_por_id(producto_id: int):
 # ============================================================
 
 def agregar_o_incrementar_producto(venta_id, producto_id, precio_unitario):
+    """
+    Agrega una unidad del producto a la venta del cajero.
+    HU-26 1450: la primera vez que entra, el precio se fija con la promocion
+    vigente (si la hay); las unidades siguientes mantienen ese precio.
+    `precio_unitario` es el precio normal que envia la deteccion.
+    """
+    import promociones as _promociones  # HU-26 1450
+
     conexion = _conexion()
     try:
+        cobro = _promociones.precio_a_cobrar(producto_id, precio_unitario, conexion)
         cursor = conexion.cursor()
         cursor.execute(
             """
-            INSERT INTO detalle_venta (venta_id, producto_id, cantidad, precio_unitario)
-            VALUES (%s, %s, 1, %s)
+            INSERT INTO detalle_venta
+                (venta_id, producto_id, cantidad, precio_unitario,
+                 precio_original, promocion_id)
+            VALUES (%s, %s, 1, %s, %s, %s)
             ON DUPLICATE KEY UPDATE cantidad = cantidad + 1
             """,
-            (venta_id, producto_id, precio_unitario),
+            (venta_id, producto_id, cobro["precio"],
+             cobro["precio_original"], cobro["promocion_id"]),
         )
         _recalcular_total(cursor, venta_id)
         conexion.commit()

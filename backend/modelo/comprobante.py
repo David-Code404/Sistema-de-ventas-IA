@@ -22,6 +22,7 @@ GRIS = HexColor("#64748B")
 GRIS_CLARO = HexColor("#94A3B8")
 AMBAR = HexColor("#FBBF24")
 AMBAR_SUAVE = HexColor("#FFFBEB")
+ROJO_OFERTA = HexColor("#B91C1C")  # HU-26 1450
 
 ANCHO, ALTO = A4
 M = 40
@@ -37,6 +38,31 @@ def numero(venta):
 
 def _bs(valor):
     return f"Bs. {float(valor):.2f}"
+
+
+def _descuento(item):
+    """
+    HU-26 1450: (precio_original, porcentaje) si la linea se vendio con
+    promocion, o None si se cobro el precio normal.
+    """
+    original = item.get("precio_original")
+    if original is None:
+        return None
+    original = float(original)
+    cobrado = float(item["precio_unitario"])
+    if original <= 0 or cobrado >= original:
+        return None
+    return original, round((1 - cobrado / original) * 100)
+
+
+def ahorro_total(venta):
+    """HU-26 1450: cuanto se desconto en toda la venta por promociones."""
+    total = 0.0
+    for item in venta.get("items", []):
+        d = _descuento(item)
+        if d:
+            total += (d[0] - float(item["precio_unitario"])) * int(item["cantidad"])
+    return round(total, 2)
 
 
 def _pie(c):
@@ -197,20 +223,53 @@ def generar_pdf(venta, atendido_por=None):
             c.setFillColor(VERDE_SUAVE)
             c.rect(M, y - alto_fila, ANCHO - 2 * M, alto_fila, stroke=0, fill=1)
         base = y - 18
+        descuento = _descuento(item)  # HU-26 1450
         c.setFillColor(VERDE_TEXTO)
         c.setFont("Helvetica-Bold", 9)
         c.drawString(M + 12, base, str(n))
         c.setFillColor(NAVY)
         c.setFont("Helvetica", 10)
-        c.drawString(M + 44, base, str(item["nombre"])[:42])
+        if descuento:
+            # HU-26 1450: nombre arriba y "OFERTA -20%" abajo, en la misma fila
+            c.drawString(M + 44, y - 13, str(item["nombre"])[:40])
+            c.setFillColor(ROJO_OFERTA)
+            c.setFont("Helvetica-Bold", 7.5)
+            c.drawString(M + 44, y - 23, f"OFERTA -{descuento[1]}%")
+            c.setFillColor(NAVY)
+            c.setFont("Helvetica", 10)
+        else:
+            c.drawString(M + 44, base, str(item["nombre"])[:42])
         c.drawCentredString(M + 318, base, str(item["cantidad"]))
-        c.drawRightString(M + 410, base, _bs(item["precio_unitario"]))
+        if descuento:
+            # HU-26 1450: precio cobrado arriba y precio normal tachado abajo
+            c.drawRightString(M + 410, y - 13, _bs(item["precio_unitario"]))
+            texto_original = _bs(descuento[0])
+            c.setFillColor(GRIS_CLARO)
+            c.setFont("Helvetica", 7.5)
+            c.drawRightString(M + 410, y - 23, texto_original)
+            ancho_txt = c.stringWidth(texto_original, "Helvetica", 7.5)
+            c.setStrokeColor(GRIS_CLARO)
+            c.setLineWidth(0.6)
+            c.line(M + 410 - ancho_txt, y - 20.5, M + 410, y - 20.5)
+            c.setLineWidth(1)
+            c.setFillColor(NAVY)
+        else:
+            c.drawRightString(M + 410, base, _bs(item["precio_unitario"]))
         c.setFont("Helvetica-Bold", 10)
         c.drawRightString(M + 503, base, _bs(item["subtotal"]))
         y -= alto_fila
 
     c.setStrokeColor(BORDE)
     c.line(M, y, ANCHO - M, y)
+
+    # HU-26 1450: ahorro total por promociones, debajo de la tabla
+    ahorro = ahorro_total(venta)
+    if ahorro > 0:
+        c.setFillColor(ROJO_OFERTA)
+        c.setFont("Helvetica-Bold", 9.5)
+        c.drawRightString(ANCHO - M - 12, y - 16,
+                          f"Ahorro por promociones: -{_bs(ahorro)}")
+        y -= 20
 
     if y - 190 < 60:
         _pie(c)

@@ -13,16 +13,33 @@ import 'confirmar_pedido_screen.dart';
 
 String formatoBs(double v) => 'Bs ${v.toStringAsFixed(2)}';
 
-/// Vuelve a pedir el stock y los precios (GET /inventario) y ajusta el
-/// carrito. Devuelve los avisos para el cliente. Lanza excepcion si no hay
-/// conexion.
+/// HU-26 1450: ofertas vigentes hoy (GET /promociones/ofertas).
+/// Si fallan, devuelve una lista vacia (el carrito queda sin descuentos).
+Future<List<Map<String, dynamic>>> cargarOfertas(String apiBase) async {
+  try {
+    final resp = await http
+        .get(Uri.parse('$apiBase/promociones/ofertas'))
+        .timeout(const Duration(seconds: 15));
+    if (resp.statusCode != 200) return [];
+    return (jsonDecode(utf8.decode(resp.bodyBytes)) as List<dynamic>)
+        .cast<Map<String, dynamic>>();
+  } catch (_) {
+    return [];
+  }
+}
+
+/// Vuelve a pedir el stock, los precios y las ofertas, y ajusta el carrito.
+/// Devuelve los avisos para el cliente. Lanza excepcion si no hay conexion.
 Future<List<String>> sincronizarCarrito(String apiBase) async {
-  final resp = await http
-      .get(Uri.parse('$apiBase/inventario'))
-      .timeout(const Duration(seconds: 15));
+  final respuestas = await Future.wait([
+    http.get(Uri.parse('$apiBase/inventario')).timeout(const Duration(seconds: 15)),
+    cargarOfertas(apiBase),
+  ]);
+  final resp = respuestas[0] as http.Response;
+  final ofertas = respuestas[1] as List<Map<String, dynamic>>;
   if (resp.statusCode != 200) throw Exception('Servidor: ${resp.statusCode}');
   final lista = (jsonDecode(resp.body) as List<dynamic>).cast<Map<String, dynamic>>();
-  return CarritoCliente.instance.sincronizar(lista);
+  return CarritoCliente.instance.sincronizar(aplicarOfertas(lista, ofertas));
 }
 
 /// Carrito del cliente: productos, cantidades editables, subtotales y total.
@@ -230,7 +247,10 @@ class _CarritoClienteScreenState extends State<CarritoClienteScreen> {
       decoration: BoxDecoration(
         color: AppColors.surface,
         borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: AppColors.border),
+        border: Border.all(
+            color: item.conPromocion
+                ? AppColors.danger.withValues(alpha: 0.4)
+                : AppColors.border),
       ),
       child: Column(
         children: [
@@ -251,9 +271,7 @@ class _CarritoClienteScreenState extends State<CarritoClienteScreen> {
                             fontSize: 14,
                             fontWeight: FontWeight.w600)),
                     SizedBox(height: 4),
-                    Text('${formatoBs(item.precio)} c/u',
-                        style: TextStyle(
-                            color: AppColors.textMuted, fontSize: 12.5)),
+                    _precioUnitario(item),
                   ],
                 ),
               ),
@@ -293,7 +311,46 @@ class _CarritoClienteScreenState extends State<CarritoClienteScreen> {
     );
   }
 
+  /// HU-26 1450: precio por unidad; con oferta, el normal tachado al lado.
+  Widget _precioUnitario(ItemCarrito item) {
+    if (!item.conPromocion) {
+      return Text('${formatoBs(item.precio)} c/u',
+          style: TextStyle(color: AppColors.textMuted, fontSize: 12.5));
+    }
+    final pct = ((1 - item.precio / item.precioOriginal!) * 100).round();
+    return Wrap(
+      spacing: 6,
+      crossAxisAlignment: WrapCrossAlignment.center,
+      children: [
+        Text('${formatoBs(item.precio)} c/u',
+            style: TextStyle(
+                color: AppColors.danger,
+                fontSize: 12.5,
+                fontWeight: FontWeight.w700)),
+        Text(formatoBs(item.precioOriginal!),
+            style: TextStyle(
+                color: AppColors.textMuted,
+                fontSize: 11.5,
+                decoration: TextDecoration.lineThrough,
+                decorationColor: AppColors.textMuted)),
+        Container(
+          padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 1),
+          decoration: BoxDecoration(
+            color: AppColors.danger,
+            borderRadius: BorderRadius.circular(10),
+          ),
+          child: Text('-$pct%',
+              style: TextStyle(
+                  color: AppColors.onDanger,
+                  fontSize: 10.5,
+                  fontWeight: FontWeight.w800)),
+        ),
+      ],
+    );
+  }
+
   Widget _barraTotal() {
+    final ahorro = _carrito.ahorro;
     return Container(
       decoration: BoxDecoration(
         color: AppColors.surface,
@@ -328,6 +385,13 @@ class _CarritoClienteScreenState extends State<CarritoClienteScreen> {
                                   fontSize: 22,
                                   fontWeight: FontWeight.w800)),
                         ),
+                        // HU-26 1450
+                        if (ahorro > 0.001)
+                          Text('Ahorras ${formatoBs(ahorro)} con promociones',
+                              style: TextStyle(
+                                  color: AppColors.danger,
+                                  fontSize: 11.5,
+                                  fontWeight: FontWeight.w600)),
                       ],
                     ),
                   ),

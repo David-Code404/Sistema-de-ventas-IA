@@ -41,9 +41,34 @@ class _ProductoCliente {
       );
 }
 
+/// HU-26 - Tarea 1440: descuento vigente HOY de un producto
+/// (viene de GET /promociones/ofertas).
+class _Oferta {
+  final double precioOferta;
+  final double porcentaje;
+  final DateTime fechaFin;
+  final String promocion;
+
+  _Oferta({
+    required this.precioOferta,
+    required this.porcentaje,
+    required this.fechaFin,
+    required this.promocion,
+  });
+
+  factory _Oferta.fromJson(Map<String, dynamic> j) => _Oferta(
+        precioOferta: (j['precio_oferta'] as num).toDouble(),
+        porcentaje: (j['porcentaje'] as num).toDouble(),
+        fechaFin: DateTime.parse(j['fecha_fin'].toString()),
+        promocion: (j['promocion_nombre'] ?? '') as String,
+      );
+}
+
 /// Catalogo en linea para el rol Cliente: productos con precio, categoria y
 /// existencias, y seleccion de cantidad para agregarlos al carrito (sin
 /// superar el stock). No incluye ninguna accion de edicion, alta o baja.
+/// Si un producto tiene promocion vigente, muestra el precio original tachado
+/// y el precio de oferta (HU-26, tarea 1440).
 class ClienteProductosScreen extends StatefulWidget {
   final String apiBase;
 
@@ -60,10 +85,14 @@ class _ClienteProductosScreenState extends State<ClienteProductosScreen> {
   String? _error;
   final Map<int, Uint8List?> _imagenesCache = {};
 
+  // Ofertas vigentes por id de producto (HU-26, tarea 1440)
+  Map<int, _Oferta> _ofertas = {};
+
   final _busquedaCtrl = TextEditingController();
   String _busqueda = '';
   int? _categoriaFiltro;
   bool _soloDisponibles = false;
+  bool _soloOfertas = false;
 
   // Cantidad elegida en el selector de cada producto (por defecto 1)
   final Map<int, int> _seleccion = {};
@@ -102,17 +131,29 @@ class _ClienteProductosScreenState extends State<ClienteProductosScreen> {
       _error = null;
     });
     try {
-      final resp = await http.get(Uri.parse('${widget.apiBase}/inventario'));
+      // Productos y ofertas a la vez
+      final respuestas = await Future.wait([
+        http.get(Uri.parse('${widget.apiBase}/inventario')),
+        cargarOfertas(widget.apiBase), // de carrito_cliente_screen.dart (1450)
+      ]);
+      final resp = respuestas[0] as http.Response;
+      final listaOfertas = respuestas[1] as List<Map<String, dynamic>>;
       if (resp.statusCode != 200) throw Exception('Backend: ${resp.statusCode}');
       final lista = jsonDecode(resp.body) as List<dynamic>;
       final items = lista
           .map((e) => _ProductoCliente.fromJson(e as Map<String, dynamic>))
           .toList();
-      // Mantiene el carrito al dia con el stock y precios actuales
-      CarritoCliente.instance.sincronizar(lista.cast<Map<String, dynamic>>());
+      final ofertas = {
+        for (final o in listaOfertas)
+          (o['producto_id'] as num).toInt(): _Oferta.fromJson(o),
+      };
+      // Mantiene el carrito al dia con el stock, los precios y las ofertas
+      CarritoCliente.instance.sincronizar(
+          aplicarOfertas(lista.cast<Map<String, dynamic>>(), listaOfertas));
       if (!mounted) return;
       setState(() {
         _items = items;
+        _ofertas = ofertas;
         _cargando = false;
       });
       _cargarImagenes(items);
@@ -145,6 +186,7 @@ class _ClienteProductosScreenState extends State<ClienteProductosScreen> {
     final q = _busqueda.trim().toLowerCase();
     return _items.where((p) {
       if (_soloDisponibles && p.stock <= 0) return false;
+      if (_soloOfertas && !_ofertas.containsKey(p.id)) return false;
       if (_categoriaFiltro != null && p.categoriaId != _categoriaFiltro) {
         return false;
       }
@@ -192,6 +234,7 @@ class _ClienteProductosScreenState extends State<ClienteProductosScreen> {
 
   Widget _buildEncabezado() {
     final disponibles = _items.where((p) => p.stock > 0).length;
+    final enOferta = _items.where((p) => _ofertas.containsKey(p.id)).length;
     return Row(
       children: [
         Container(
@@ -215,7 +258,8 @@ class _ClienteProductosScreenState extends State<ClienteProductosScreen> {
               Text(
                 _items.isEmpty
                     ? 'Consulta la disponibilidad de cada producto.'
-                    : '$disponibles de ${_items.length} productos disponibles',
+                    : '$disponibles de ${_items.length} productos disponibles'
+                        '${enOferta > 0 ? '  ·  $enOferta en oferta' : ''}',
                 style:
                     TextStyle(color: AppColors.textMuted, fontSize: 12),
               ),
@@ -255,6 +299,23 @@ class _ClienteProductosScreenState extends State<ClienteProductosScreen> {
             ),
           ),
         ),
+        // Filtro "Ofertas": solo aparece si hay alguna promocion vigente
+        if (_ofertas.isNotEmpty) ...[
+          SizedBox(width: 10),
+          FilterChip(
+            selected: _soloOfertas,
+            onSelected: (v) => setState(() => _soloOfertas = v),
+            avatar: Icon(Icons.local_offer_outlined,
+                size: 15, color: AppColors.danger),
+            label: Text('Ofertas'),
+            showCheckmark: false,
+            selectedColor: AppColors.danger.withValues(alpha: 0.14),
+            side: BorderSide(
+                color: _soloOfertas
+                    ? AppColors.danger.withValues(alpha: 0.6)
+                    : AppColors.border),
+          ),
+        ],
         SizedBox(width: 10),
         FilterChip(
           selected: _soloDisponibles,
@@ -369,6 +430,7 @@ class _ClienteProductosScreenState extends State<ClienteProductosScreen> {
   Widget _tarjeta(_ProductoCliente p) {
     final color = _colorCategoria(p.categoriaId);
     final agotado = p.stock <= 0;
+    final oferta = _ofertas[p.id];
 
     return Opacity(
       opacity: agotado ? 0.7 : 1,
@@ -376,7 +438,10 @@ class _ClienteProductosScreenState extends State<ClienteProductosScreen> {
         decoration: BoxDecoration(
           color: AppColors.surface,
           borderRadius: BorderRadius.circular(12),
-          border: Border.all(color: AppColors.border),
+          border: Border.all(
+              color: oferta != null
+                  ? AppColors.danger.withValues(alpha: 0.45)
+                  : AppColors.border),
         ),
         clipBehavior: Clip.antiAlias,
         child: Column(
@@ -400,6 +465,12 @@ class _ClienteProductosScreenState extends State<ClienteProductosScreen> {
                     top: 8,
                     child: _badgeStock(p.stock),
                   ),
+                  if (oferta != null)
+                    Positioned(
+                      right: 8,
+                      top: 8,
+                      child: _badgeDescuento(oferta),
+                    ),
                 ],
               ),
             ),
@@ -417,11 +488,7 @@ class _ClienteProductosScreenState extends State<ClienteProductosScreen> {
                           fontSize: 13.5,
                           height: 1.25)),
                   SizedBox(height: 6),
-                  Text('Bs ${_formatoPrecio(p.precio)}',
-                      style: TextStyle(
-                          color: AppColors.textPrimary,
-                          fontWeight: FontWeight.w600,
-                          fontSize: 20)),
+                  _precio(p, oferta),
                   SizedBox(height: 6),
                   Text(p.categoria ?? 'Sin categoría',
                       maxLines: 1,
@@ -437,6 +504,70 @@ class _ClienteProductosScreenState extends State<ClienteProductosScreen> {
             ),
           ],
         ),
+      ),
+    );
+  }
+
+  // ── Precio (HU-26, tarea 1440) ──────────────────────────────
+  /// Sin oferta: el precio normal. Con oferta: precio original tachado,
+  /// precio de oferta destacado y hasta cuando dura.
+  Widget _precio(_ProductoCliente p, _Oferta? oferta) {
+    if (oferta == null) {
+      return Text('Bs ${_formatoPrecio(p.precio)}',
+          style: TextStyle(
+              color: AppColors.textPrimary,
+              fontWeight: FontWeight.w600,
+              fontSize: 20));
+    }
+    String dd(int x) => x.toString().padLeft(2, '0');
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Wrap(
+          crossAxisAlignment: WrapCrossAlignment.end,
+          spacing: 8,
+          children: [
+            Text('Bs ${_formatoPrecio(oferta.precioOferta)}',
+                style: TextStyle(
+                    color: AppColors.danger,
+                    fontWeight: FontWeight.w700,
+                    fontSize: 20)),
+            Padding(
+              padding: const EdgeInsets.only(bottom: 3),
+              child: Text('Bs ${_formatoPrecio(p.precio)}',
+                  semanticsLabel: 'Antes Bs ${_formatoPrecio(p.precio)}',
+                  style: TextStyle(
+                      color: AppColors.textMuted,
+                      fontSize: 13,
+                      decoration: TextDecoration.lineThrough,
+                      decorationColor: AppColors.textMuted)),
+            ),
+          ],
+        ),
+        SizedBox(height: 2),
+        Text('Oferta hasta el ${dd(oferta.fechaFin.day)}/${dd(oferta.fechaFin.month)}',
+            style: TextStyle(color: AppColors.textMuted, fontSize: 11)),
+      ],
+    );
+  }
+
+  Widget _badgeDescuento(_Oferta oferta) {
+    final pct = oferta.porcentaje == oferta.porcentaje.roundToDouble()
+        ? oferta.porcentaje.toStringAsFixed(0)
+        : oferta.porcentaje.toStringAsFixed(1);
+    return Tooltip(
+      message: oferta.promocion,
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+        decoration: BoxDecoration(
+          color: AppColors.danger,
+          borderRadius: BorderRadius.circular(20),
+        ),
+        child: Text('-$pct%',
+            style: TextStyle(
+                color: AppColors.onDanger,
+                fontSize: 11.5,
+                fontWeight: FontWeight.w800)),
       ),
     );
   }
@@ -503,10 +634,12 @@ class _ClienteProductosScreenState extends State<ClienteProductosScreen> {
   }
 
   void _agregar(_ProductoCliente p, int cantidad) {
+    final oferta = _ofertas[p.id]; // HU-26 1450: se guarda el precio de oferta
     final agregadas = CarritoCliente.instance.agregar(
       productoId: p.id,
       nombre: p.nombre,
-      precio: p.precio,
+      precio: oferta?.precioOferta ?? p.precio,
+      precioOriginal: oferta == null ? null : p.precio,
       stock: p.stock,
       cantidad: cantidad,
     );

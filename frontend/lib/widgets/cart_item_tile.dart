@@ -40,10 +40,49 @@ class CartItemTile extends StatelessWidget {
                   item.name,
                   style: TextStyle(color: AppColors.textPrimary, fontWeight: FontWeight.w600),
                 ),
-                Text(
-                  'S/ ${item.price.toStringAsFixed(2)}',
-                  style: TextStyle(color: AppColors.accent, fontSize: 13),
-                ),
+                // HU-26 1450: con promocion, precio de oferta + precio normal tachado
+                if (item.conPromocion)
+                  Wrap(
+                    spacing: 6,
+                    crossAxisAlignment: WrapCrossAlignment.center,
+                    children: [
+                      Text(
+                        'S/ ${item.price.toStringAsFixed(2)}',
+                        style: TextStyle(
+                            color: AppColors.danger,
+                            fontSize: 13,
+                            fontWeight: FontWeight.w700),
+                      ),
+                      Text(
+                        'S/ ${item.originalPrice!.toStringAsFixed(2)}',
+                        style: TextStyle(
+                          color: AppColors.textMuted,
+                          fontSize: 11.5,
+                          decoration: TextDecoration.lineThrough,
+                          decorationColor: AppColors.textMuted,
+                        ),
+                      ),
+                      Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 1),
+                        decoration: BoxDecoration(
+                          color: AppColors.danger.withValues(alpha: 0.14),
+                          borderRadius: BorderRadius.circular(6),
+                        ),
+                        child: Text(
+                          '-${item.porcentajeDescuento}%',
+                          style: TextStyle(
+                              color: AppColors.danger,
+                              fontSize: 10.5,
+                              fontWeight: FontWeight.w800),
+                        ),
+                      ),
+                    ],
+                  )
+                else
+                  Text(
+                    'S/ ${item.price.toStringAsFixed(2)}',
+                    style: TextStyle(color: AppColors.accent, fontSize: 13),
+                  ),
               ],
             ),
           ),

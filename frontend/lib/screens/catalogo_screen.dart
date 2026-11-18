@@ -13,6 +13,29 @@ import '../widgets/app_shell.dart';
 import '../widgets/app_sidebar.dart';
 import '../widgets/bounded_content.dart';
 
+/// HU-26 - Tarea 1450: descuento vigente HOY de un producto
+/// (viene de GET /promociones/ofertas).
+class _Oferta {
+  final double precioOferta;
+  final double porcentaje;
+  final DateTime fechaFin;
+  final String promocion;
+
+  _Oferta({
+    required this.precioOferta,
+    required this.porcentaje,
+    required this.fechaFin,
+    required this.promocion,
+  });
+
+  factory _Oferta.fromJson(Map<String, dynamic> j) => _Oferta(
+        precioOferta: (j['precio_oferta'] as num).toDouble(),
+        porcentaje: (j['porcentaje'] as num).toDouble(),
+        fechaFin: DateTime.parse(j['fecha_fin'].toString()),
+        promocion: (j['promocion_nombre'] ?? '') as String,
+      );
+}
+
 class CatalogoScreen extends StatefulWidget {
   final String apiBase;
 
@@ -34,6 +57,9 @@ class _CatalogoScreenState extends State<CatalogoScreen> {
   String?                    _error;
   bool                       _filtrosActivos = false;
   final Map<int, Uint8List?> _imagenesCache  = {};
+
+  // HU-26 1450: ofertas vigentes por id de producto
+  Map<int, _Oferta>          _ofertas        = {};
 
   @override
   void initState() {
@@ -64,6 +90,22 @@ class _CatalogoScreenState extends State<CatalogoScreen> {
     } catch (_) {}
   }
 
+  /// HU-26 1450: ofertas de hoy. Si fallan, el catalogo se muestra sin ellas.
+  Future<Map<int, _Oferta>> _cargarOfertas() async {
+    try {
+      final resp =
+          await http.get(Uri.parse('${widget.apiBase}/promociones/ofertas'));
+      if (resp.statusCode != 200) return {};
+      final lista = jsonDecode(utf8.decode(resp.bodyBytes)) as List<dynamic>;
+      return {
+        for (final e in lista.cast<Map<String, dynamic>>())
+          (e['producto_id'] as num).toInt(): _Oferta.fromJson(e),
+      };
+    } catch (_) {
+      return {};
+    }
+  }
+
   Future<void> _buscar() async {
     setState(() { _cargando = true; _error = null; });
 
@@ -77,12 +119,15 @@ class _CatalogoScreenState extends State<CatalogoScreen> {
 
     final uri = Uri.parse('${widget.apiBase}/productos').replace(queryParameters: params);
     try {
-      final resp = await http.get(uri);
+      // Productos y ofertas a la vez (HU-26 1450)
+      final respuestas = await Future.wait([http.get(uri), _cargarOfertas()]);
+      final resp    = respuestas[0] as http.Response;
+      final ofertas = respuestas[1] as Map<int, _Oferta>;
       if (resp.statusCode != 200) throw Exception('Backend: ${resp.statusCode}');
       final lista    = jsonDecode(resp.body) as List<dynamic>;
       final productos = lista.map((e) => Producto.fromJson(e as Map<String, dynamic>)).toList();
       if (!mounted) return;
-      setState(() { _productos = productos; _cargando = false; });
+      setState(() { _productos = productos; _ofertas = ofertas; _cargando = false; });
       _cargarImagenes(productos);
     } catch (e) {
       if (!mounted) return;
@@ -216,6 +261,7 @@ class _CatalogoScreenState extends State<CatalogoScreen> {
 
   Widget _buildEncabezado() {
     final esAdmin = Session.esAdmin;
+    final enOferta = _productos.where((p) => _ofertas.containsKey(p.id)).length;
     return Row(
       children: [
         Container(
@@ -245,6 +291,28 @@ class _CatalogoScreenState extends State<CatalogoScreen> {
             ],
           ),
         ),
+        // HU-26 1450: cuantos productos tienen promocion hoy
+        if (enOferta > 0)
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+            decoration: BoxDecoration(
+              color: AppColors.danger.withValues(alpha: 0.12),
+              borderRadius: BorderRadius.circular(20),
+              border: Border.all(color: AppColors.danger.withValues(alpha: 0.45)),
+            ),
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Icon(Icons.local_offer_outlined, size: 14, color: AppColors.danger),
+                SizedBox(width: 5),
+                Text('$enOferta en oferta',
+                    style: TextStyle(
+                        color: AppColors.danger,
+                        fontSize: 12,
+                        fontWeight: FontWeight.w700)),
+              ],
+            ),
+          ),
       ],
     );
   }
@@ -442,6 +510,7 @@ class _CatalogoScreenState extends State<CatalogoScreen> {
       children: _productos.map((p) {
         final color          = _colorCategoria(p.categoriaId);
         final nombreCategoria = p.categoriaNombre ?? _nombreCategoria(p.categoriaId);
+        final oferta         = _ofertas[p.id]; // HU-26 1450
 
         return Padding(
           padding: const EdgeInsets.only(bottom: 10),
@@ -457,7 +526,10 @@ class _CatalogoScreenState extends State<CatalogoScreen> {
                     horizontal: 14, vertical: 12),
                 decoration: BoxDecoration(
                   borderRadius: BorderRadius.circular(12),
-                  border: Border.all(color: AppColors.border),
+                  border: Border.all(
+                      color: oferta != null
+                          ? AppColors.danger.withValues(alpha: 0.45)
+                          : AppColors.border),
                 ),
                 child: Row(
                   children: [
@@ -477,7 +549,7 @@ class _CatalogoScreenState extends State<CatalogoScreen> {
                     ),
                     SizedBox(width: 14),
 
-                    // Nombre + categoria
+                    // Nombre + categoria (+ promocion)
                     Expanded(
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
@@ -488,35 +560,36 @@ class _CatalogoScreenState extends State<CatalogoScreen> {
                                   fontWeight: FontWeight.w600,
                                   fontSize: 14)),
                           SizedBox(height: 5),
-                          Container(
-                            padding: const EdgeInsets.symmetric(
-                                horizontal: 8, vertical: 3),
-                            decoration: BoxDecoration(
-                              color: color.withValues(alpha: 0.14),
-                              borderRadius: BorderRadius.circular(20),
-                              border: Border.all(
-                                  color: color.withValues(alpha: 0.4)),
-                            ),
-                            child: Text(
-                              nombreCategoria ?? 'Sin categoria',
-                              style: TextStyle(
-                                  color: color,
-                                  fontSize: 10.5,
-                                  fontWeight: FontWeight.w600),
-                            ),
+                          Wrap(
+                            spacing: 6,
+                            runSpacing: 4,
+                            children: [
+                              Container(
+                                padding: const EdgeInsets.symmetric(
+                                    horizontal: 8, vertical: 3),
+                                decoration: BoxDecoration(
+                                  color: color.withValues(alpha: 0.14),
+                                  borderRadius: BorderRadius.circular(20),
+                                  border: Border.all(
+                                      color: color.withValues(alpha: 0.4)),
+                                ),
+                                child: Text(
+                                  nombreCategoria ?? 'Sin categoria',
+                                  style: TextStyle(
+                                      color: color,
+                                      fontSize: 10.5,
+                                      fontWeight: FontWeight.w600),
+                                ),
+                              ),
+                              if (oferta != null) _chipPromocion(oferta),
+                            ],
                           ),
                         ],
                       ),
                     ),
 
-                    // Precio
-                    Text(
-                      'Bs. ${p.precio.toStringAsFixed(2)}',
-                      style: TextStyle(
-                          color: AppColors.accent,
-                          fontWeight: FontWeight.w700,
-                          fontSize: 15),
-                    ),
+                    // Precio (HU-26 1450: con oferta, normal tachado + oferta)
+                    _precio(p, oferta),
 
                     // Botones editar y eliminar — solo Admin
                     if (esAdmin) ...[
@@ -558,6 +631,71 @@ class _CatalogoScreenState extends State<CatalogoScreen> {
           ),
         );
       }).toList(),
+    );
+  }
+
+  // ── HU-26 1450: promocion en el catalogo del cajero / admin ──
+  Widget _precio(Producto p, _Oferta? oferta) {
+    if (oferta == null) {
+      return Text(
+        'Bs. ${p.precio.toStringAsFixed(2)}',
+        style: TextStyle(
+            color: AppColors.accent,
+            fontWeight: FontWeight.w700,
+            fontSize: 15),
+      );
+    }
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.end,
+      children: [
+        Text(
+          'Bs. ${p.precio.toStringAsFixed(2)}',
+          style: TextStyle(
+              color: AppColors.textMuted,
+              fontSize: 12,
+              decoration: TextDecoration.lineThrough,
+              decorationColor: AppColors.textMuted),
+        ),
+        Text(
+          'Bs. ${oferta.precioOferta.toStringAsFixed(2)}',
+          style: TextStyle(
+              color: AppColors.danger,
+              fontWeight: FontWeight.w800,
+              fontSize: 15),
+        ),
+      ],
+    );
+  }
+
+  Widget _chipPromocion(_Oferta oferta) {
+    String dd(int x) => x.toString().padLeft(2, '0');
+    final pct = oferta.porcentaje == oferta.porcentaje.roundToDouble()
+        ? oferta.porcentaje.toStringAsFixed(0)
+        : oferta.porcentaje.toStringAsFixed(1);
+    return Tooltip(
+      message: '${oferta.promocion} · hasta el '
+          '${dd(oferta.fechaFin.day)}/${dd(oferta.fechaFin.month)}',
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+        decoration: BoxDecoration(
+          color: AppColors.danger,
+          borderRadius: BorderRadius.circular(20),
+        ),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(Icons.local_offer_outlined, size: 11, color: AppColors.onDanger),
+            SizedBox(width: 4),
+            Text(
+              '-$pct%  hasta ${dd(oferta.fechaFin.day)}/${dd(oferta.fechaFin.month)}',
+              style: TextStyle(
+                  color: AppColors.onDanger,
+                  fontSize: 10.5,
+                  fontWeight: FontWeight.w800),
+            ),
+          ],
+        ),
+      ),
     );
   }
 }

@@ -14,6 +14,7 @@ import '../screens/usuarios_screen.dart';
 import '../theme/app_colors.dart';
 import 'cambiar_password_dialog.dart';
 import '../theme/theme_controller.dart';
+import '../screens/promociones_screen.dart';
 
 enum AppSection {
   dashboard,
@@ -24,6 +25,7 @@ enum AppSection {
   inventario,
   usuarios,
   agregarProducto,
+  promociones,
 }
 
 class AppSidebar extends StatelessWidget {
@@ -147,6 +149,16 @@ class AppSidebar extends StatelessWidget {
               label: 'Usuarios',
               active: current == AppSection.usuarios,
               onTap: () => _ir(context, UsuariosScreen(apiBase: apiBase)),
+            ),
+
+
+          // Promociones — solo Admin (HU-26)
+          if (esAdmin)
+            _NavItem(
+              icon: Icons.local_offer_outlined,
+              label: 'Promociones',
+              active: current == AppSection.promociones,
+              onTap: () => _ir(context, PromocionesScreen(apiBase: apiBase)),
             ),
 
           // Productos — solo Admin

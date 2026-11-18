@@ -14,8 +14,11 @@ from fastapi.middleware.cors import CORSMiddleware
 
 import config
 import rutas_cuentas
+import rutas_historial_compras
 import rutas_pedidos
 import rutas_tienda
+import rutas_promociones
+
 
 app = FastAPI(title="Caja Registradora IA - Tienda en linea")
 
@@ -29,6 +32,8 @@ app.add_middleware(
 app.include_router(rutas_cuentas.router)
 app.include_router(rutas_tienda.router)
 app.include_router(rutas_pedidos.router)
+app.include_router(rutas_historial_compras.router)  # HU-25 tarea 1400
+app.include_router(rutas_promociones.router)  # HU-26 tarea 1430
 
 
 @app.get("/salud")
