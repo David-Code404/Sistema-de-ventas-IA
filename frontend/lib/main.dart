@@ -2,7 +2,10 @@ import 'package:flutter/material.dart';
 import 'package:flutter/semantics.dart';
 import 'config/app_config.dart';
 import 'models/carrito_cliente.dart';
+import 'models/session.dart';
 import 'navegacion.dart';
+import 'screens/admin_shell.dart';
+import 'screens/cajero_shell.dart';
 import 'screens/cliente_shell.dart';
 import 'screens/login_screen.dart';
 import 'theme/app_theme.dart';
@@ -20,6 +23,7 @@ Future<void> main() async {
   }
   await ThemeController.instance.cargar();
   await CarritoCliente.instance.cargar();
+  await Session.cargar();
   Navegacion.login = () => LoginScreen(apiBase: AppConfig.apiBase);
   Navegacion.inicioCliente = () => ClienteShell(apiBase: AppConfig.apiBase);
   runApp(MyApp());
@@ -29,6 +33,14 @@ class MyApp extends StatelessWidget {
   MyApp({super.key});
 
   static const String apiBase = AppConfig.apiBase;
+
+  /// Si habia una sesion guardada (al actualizar la pagina), entra directo a su pantalla segun el rol.
+  Widget _pantallaInicial() {
+    if (Session.esAdmin) return AdminShell(apiBase: apiBase);
+    if (Session.esCajero) return CajeroShell(apiBase: apiBase);
+    if (Session.esCliente) return ClienteShell(apiBase: apiBase);
+    return LoginScreen(apiBase: apiBase);
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -41,7 +53,7 @@ class MyApp extends StatelessWidget {
           themeMode: mode,
           theme: buildLightTheme(),
           darkTheme: buildDarkTheme(),
-          home: LoginScreen(apiBase: apiBase),
+          home: _pantallaInicial(),
         );
       },
     );
