@@ -30,6 +30,11 @@
    `.env` esta en `.gitignore`: la clave nunca se sube al repositorio.
 3. Prueba: `cd backend/modelo` y `python probar_correo.py tu_correo@gmail.com`.
 
+## Correo en Render: usar Brevo (API) en vez de SMTP
+Render (plan gratuito) bloquea los puertos de correo SMTP, asi que en Render el correo sale por la API web de Brevo
+(HTTPS, gratis, 300 correos al dia). En el servidor se define `BREVO_API_KEY` y `BREVO_REMITENTE` (un correo verificado
+en Brevo); si `BREVO_API_KEY` tiene valor se usa Brevo y si esta vacia se usa SMTP. Pasos en `.env.example`.
+
 ## Tareas 1310 y 1330 - Como funciona
 - **Obligatorio** para administrador y cajero en cada inicio de sesion. **Opcional** para el cliente: lo activa o
   desactiva desde "Verificacion en dos pasos" en su menu de cuenta (pide su contrasena para confirmar).

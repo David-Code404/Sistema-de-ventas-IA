@@ -59,6 +59,9 @@ SMTP_PASSWORD = os.getenv("SMTP_PASSWORD", "").strip()
 SMTP_REMITENTE = _opcional("SMTP_REMITENTE", "")
 SMTP_SEGURIDAD = _opcional("SMTP_SEGURIDAD", "starttls").lower()
 SMTP_TIMEOUT = _opcional("SMTP_TIMEOUT", "10")
+# Alternativa por API web (puerto 443): Render y otros hosting gratuitos bloquean SMTP. Si hay clave se usa Brevo.
+BREVO_API_KEY = os.getenv("BREVO_API_KEY", "").strip()
+BREVO_REMITENTE = _opcional("BREVO_REMITENTE", "")
 
 if not SMTP_PORT.isdigit():
     sys.exit(f"\n[CONFIG] SMTP_PORT debe ser un numero (valor actual: {SMTP_PORT!r}) en {ENV_FILE}\n")
