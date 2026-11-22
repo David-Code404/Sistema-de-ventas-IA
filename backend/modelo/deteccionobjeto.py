@@ -27,6 +27,7 @@ import rutas_cuentas
 import rutas_pedidos
 import rutas_promociones
 import rutas_historial_compras
+import rutas_usuarios_extra
 import rutas_tienda
 
 # ══════════════════════════════════════════════════════════════
@@ -53,6 +54,7 @@ app.include_router(rutas_tienda.router)
 app.include_router(rutas_pedidos.router)
 app.include_router(rutas_promociones.router)
 app.include_router(rutas_historial_compras.router)
+app.include_router(rutas_usuarios_extra.router)  # eliminar usuario + correo 2FA
 
 # ══════════════════════════════════════════════════════════════
 #  AUTENTICACION

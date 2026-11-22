@@ -49,3 +49,22 @@ IMAGENES_DIR = _opcional("IMAGENES_DIR", "imagenes_productos")
 # ── API ────────────────────────────────────────────────────────
 # Origenes permitidos separados por coma, o * para permitir todos
 CORS_ORIGINS = [o.strip() for o in _opcional("CORS_ORIGINS", "*").split(",") if o.strip()]
+
+# ── Correo para el segundo factor (HU-24 1290, correo.py) ─────
+# Todas opcionales: sin SMTP_HOST el backend funciona igual, solo falla el envio de correos.
+SMTP_HOST = _opcional("SMTP_HOST", "")
+SMTP_PORT = _opcional("SMTP_PORT", "587")
+SMTP_USER = _opcional("SMTP_USER", "")
+SMTP_PASSWORD = os.getenv("SMTP_PASSWORD", "").strip()
+SMTP_REMITENTE = _opcional("SMTP_REMITENTE", "")
+SMTP_SEGURIDAD = _opcional("SMTP_SEGURIDAD", "starttls").lower()
+SMTP_TIMEOUT = _opcional("SMTP_TIMEOUT", "10")
+
+if not SMTP_PORT.isdigit():
+    sys.exit(f"\n[CONFIG] SMTP_PORT debe ser un numero (valor actual: {SMTP_PORT!r}) en {ENV_FILE}\n")
+if SMTP_SEGURIDAD not in ("starttls", "ssl", "ninguna"):
+    sys.exit(f"\n[CONFIG] SMTP_SEGURIDAD debe ser starttls, ssl o ninguna (valor actual: {SMTP_SEGURIDAD!r}) en {ENV_FILE}\n")
+if not SMTP_TIMEOUT.isdigit():
+    sys.exit(f"\n[CONFIG] SMTP_TIMEOUT debe ser un numero de segundos (valor actual: {SMTP_TIMEOUT!r}) en {ENV_FILE}\n")
+SMTP_PORT = int(SMTP_PORT)
+SMTP_TIMEOUT = int(SMTP_TIMEOUT)

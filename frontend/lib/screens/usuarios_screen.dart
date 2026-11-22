@@ -71,6 +71,7 @@ class _UsuariosScreenState extends State<UsuariosScreen> {
   Timer? _debounce;
   String? _rolFiltro;
   List<_Usuario> _usuarios = [];
+  Map<String, String> _correos2fa = {}; // id de usuario -> correo del segundo factor
   bool _cargando = true;
   bool _cargadoAlgunaVez = false;
   String? _error;
@@ -134,8 +135,16 @@ class _UsuariosScreenState extends State<UsuariosScreen> {
       }
       if (resp.statusCode != 200) throw Exception('Backend: ${resp.statusCode}');
       final lista = jsonDecode(utf8.decode(resp.bodyBytes)) as List<dynamic>;
+      var correos = <String, String>{};
+      try {
+        final r2 = await http.get(Uri.parse('${widget.apiBase}/usuarios/correos-2fa'), headers: _headers);
+        if (r2.statusCode == 200) {
+          correos = (jsonDecode(utf8.decode(r2.bodyBytes)) as Map).map((k, v) => MapEntry('$k', '$v'));
+        }
+      } catch (_) {}
       if (!mounted) return;
       setState(() {
+        _correos2fa = correos;
         _usuarios = lista
             .map((e) => _Usuario.fromJson(e as Map<String, dynamic>))
             .toList();
@@ -174,6 +183,7 @@ class _UsuariosScreenState extends State<UsuariosScreen> {
       builder: (_) => const _DialogNuevoUsuario(),
     );
     if (datos == null) return;
+    final correo = (datos.remove('correo_2fa') ?? '').trim();
 
     try {
       final resp = await http.post(
@@ -184,6 +194,19 @@ class _UsuariosScreenState extends State<UsuariosScreen> {
       if (resp.statusCode != 201) {
         _aviso(_detalle(resp), error: true);
         return;
+      }
+      if (correo.isNotEmpty) {
+        final nuevoId = (jsonDecode(utf8.decode(resp.bodyBytes)) as Map)['id'];
+        final r2 = await http.put(
+          Uri.parse('${widget.apiBase}/usuarios/$nuevoId/correo-2fa'),
+          headers: _headersJson,
+          body: jsonEncode({'correo': correo}),
+        );
+        if (r2.statusCode != 200) {
+          _aviso('Usuario creado, pero el correo no se guardo: ${_detalle(r2)}', error: true);
+          _cargar();
+          return;
+        }
       }
       _aviso('Usuario "${datos['username']}" creado.');
       _cargar();
@@ -198,19 +221,34 @@ class _UsuariosScreenState extends State<UsuariosScreen> {
       builder: (_) => _DialogEditarUsuario(
         usuario: u,
         esYo: u.id == Session.usuarioId,
+        correo2fa: _correos2fa['${u.id}'] ?? '',
       ),
     );
     if (cambios == null) return;
+    final correo = cambios.remove('correo_2fa');
 
     try {
-      final resp = await http.put(
-        Uri.parse('${widget.apiBase}/usuarios/${u.id}'),
-        headers: _headersJson,
-        body: jsonEncode(cambios),
-      );
-      if (resp.statusCode != 200) {
-        _aviso(_detalle(resp), error: true);
-        return;
+      if (cambios.isNotEmpty) {
+        final resp = await http.put(
+          Uri.parse('${widget.apiBase}/usuarios/${u.id}'),
+          headers: _headersJson,
+          body: jsonEncode(cambios),
+        );
+        if (resp.statusCode != 200) {
+          _aviso(_detalle(resp), error: true);
+          return;
+        }
+      }
+      if (correo != null) {
+        final r2 = await http.put(
+          Uri.parse('${widget.apiBase}/usuarios/${u.id}/correo-2fa'),
+          headers: _headersJson,
+          body: jsonEncode({'correo': correo}),
+        );
+        if (r2.statusCode != 200) {
+          _aviso(_detalle(r2), error: true);
+          return;
+        }
       }
       if (u.id == Session.usuarioId && cambios.containsKey('username')) {
         Session.username = cambios['username'];
@@ -264,6 +302,40 @@ class _UsuariosScreenState extends State<UsuariosScreen> {
       _aviso(activar
           ? 'Usuario "${u.nombre}" activado.'
           : 'Usuario "${u.nombre}" desactivado.');
+      _cargar();
+    } catch (e) {
+      _aviso('No se pudo conectar con el servidor: $e', error: true);
+    }
+  }
+
+  Future<void> _eliminar(_Usuario u) async {
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        backgroundColor: AppColors.surfaceAlt,
+        title: Text('Eliminar usuario',
+            style: TextStyle(color: AppColors.textPrimary, fontSize: 15, fontWeight: FontWeight.w600)),
+        content: Text(
+            '¿Eliminar a "${u.nombre}" para siempre? Esta acción no se puede deshacer. '
+            'Si la cuenta ya tiene historial, mejor desactívala.',
+            style: TextStyle(color: AppColors.textSecondary)),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx, false), child: Text('Cancelar')),
+          FilledButton(
+              style: FilledButton.styleFrom(backgroundColor: AppColors.danger),
+              onPressed: () => Navigator.pop(ctx, true),
+              child: Text('Eliminar')),
+        ],
+      ),
+    );
+    if (ok != true) return;
+    try {
+      final resp = await http.delete(Uri.parse('${widget.apiBase}/usuarios/${u.id}'), headers: _headers);
+      if (resp.statusCode != 200) {
+        _aviso(_detalle(resp), error: true);
+        return;
+      }
+      _aviso('Usuario "${u.nombre}" eliminado.');
       _cargar();
     } catch (e) {
       _aviso('No se pudo conectar con el servidor: $e', error: true);
@@ -523,6 +595,14 @@ class _UsuariosScreenState extends State<UsuariosScreen> {
                       style:
                           TextStyle(color: AppColors.textMuted, fontSize: 12),
                     ),
+                  if (_correos2fa['${u.id}'] != null)
+                    Text(
+                      '2FA: ${_correos2fa['${u.id}']}',
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style:
+                          TextStyle(color: AppColors.textMuted, fontSize: 12),
+                    ),
                 ],
               ),
             ),
@@ -547,6 +627,7 @@ class _UsuariosScreenState extends State<UsuariosScreen> {
               onSelected: (accion) {
                 if (accion == 'editar') _editar(u);
                 if (accion == 'estado') _cambiarEstado(u);
+                if (accion == 'eliminar') _eliminar(u);
               },
               itemBuilder: (_) => [
                 PopupMenuItem(
@@ -569,6 +650,16 @@ class _UsuariosScreenState extends State<UsuariosScreen> {
                         size: 17),
                     SizedBox(width: 10),
                     Text(u.activo ? 'Desactivar' : 'Activar'),
+                  ]),
+                ),
+                PopupMenuItem(
+                  value: 'eliminar',
+                  // No puedes eliminar tu propia cuenta
+                  enabled: !esYo,
+                  child: Row(children: [
+                    Icon(Icons.delete_outline_rounded, size: 17, color: AppColors.danger),
+                    SizedBox(width: 10),
+                    Text('Eliminar', style: TextStyle(color: AppColors.danger)),
                   ]),
                 ),
               ],
@@ -595,6 +686,27 @@ Widget _chipEstado(bool activo) {
   );
 }
 
+Widget _campoCorreo2fa(TextEditingController ctrl) {
+  return TextFormField(
+    controller: ctrl,
+    keyboardType: TextInputType.emailAddress,
+    style: TextStyle(color: AppColors.textPrimary, fontSize: 14),
+    decoration: InputDecoration(
+      labelText: 'Correo para el código 2FA (opcional)',
+      helperText: 'Ahí llega el código de verificación al iniciar sesión',
+      prefixIcon: Icon(Icons.mail_outline, size: 17),
+    ),
+    validator: (v) {
+      final t = (v ?? '').trim();
+      if (t.isEmpty) return null;
+      if (t.length > 100 || !RegExp(r'^[^@\s]+@[^@\s]+\.[^@\s]+$').hasMatch(t)) {
+        return 'Correo no válido (ejemplo: nombre@correo.com)';
+      }
+      return null;
+    },
+  );
+}
+
 // ── Diálogo: nuevo usuario ────────────────────────────────────
 class _DialogNuevoUsuario extends StatefulWidget {
   const _DialogNuevoUsuario();
@@ -608,6 +720,7 @@ class _DialogNuevoUsuarioState extends State<_DialogNuevoUsuario> {
   final _userCtrl = TextEditingController();
   final _passCtrl = TextEditingController();
   final _pass2Ctrl = TextEditingController();
+  final _correoCtrl = TextEditingController();
   String _rol = 'cajero';
   bool _ocultar = true;
 
@@ -616,6 +729,7 @@ class _DialogNuevoUsuarioState extends State<_DialogNuevoUsuario> {
     _userCtrl.dispose();
     _passCtrl.dispose();
     _pass2Ctrl.dispose();
+    _correoCtrl.dispose();
     super.dispose();
   }
 
@@ -707,6 +821,8 @@ class _DialogNuevoUsuarioState extends State<_DialogNuevoUsuario> {
                       .toList(),
                   onChanged: (v) => setState(() => _rol = v ?? _rol),
                 ),
+                SizedBox(height: 12),
+                _campoCorreo2fa(_correoCtrl),
               ],
             ),
           ),
@@ -723,6 +839,7 @@ class _DialogNuevoUsuarioState extends State<_DialogNuevoUsuario> {
               'username': _userCtrl.text.trim(),
               'password': _passCtrl.text,
               'rol': _rol,
+              'correo_2fa': _correoCtrl.text.trim(),
             });
           },
           child: Text('Crear usuario'),
@@ -736,8 +853,9 @@ class _DialogNuevoUsuarioState extends State<_DialogNuevoUsuario> {
 class _DialogEditarUsuario extends StatefulWidget {
   final _Usuario usuario;
   final bool esYo;
+  final String correo2fa;
 
-  const _DialogEditarUsuario({required this.usuario, required this.esYo});
+  const _DialogEditarUsuario({required this.usuario, required this.esYo, this.correo2fa = ''});
 
   @override
   State<_DialogEditarUsuario> createState() => _DialogEditarUsuarioState();
@@ -747,12 +865,14 @@ class _DialogEditarUsuarioState extends State<_DialogEditarUsuario> {
   final _formKey = GlobalKey<FormState>();
   late final TextEditingController _userCtrl;
   final _passCtrl = TextEditingController();
+  late final TextEditingController _correoCtrl;
   late String _rol;
   bool _ocultar = true;
 
   @override
   void initState() {
     super.initState();
+    _correoCtrl = TextEditingController(text: widget.correo2fa);
     _userCtrl = TextEditingController(text: widget.usuario.username);
     _rol = widget.usuario.rol;
   }
@@ -761,6 +881,7 @@ class _DialogEditarUsuarioState extends State<_DialogEditarUsuario> {
   void dispose() {
     _userCtrl.dispose();
     _passCtrl.dispose();
+    _correoCtrl.dispose();
     super.dispose();
   }
 
@@ -848,6 +969,8 @@ class _DialogEditarUsuarioState extends State<_DialogEditarUsuario> {
                     return null;
                   },
                 ),
+                SizedBox(height: 12),
+                _campoCorreo2fa(_correoCtrl),
               ],
             ),
           ),
@@ -868,6 +991,7 @@ class _DialogEditarUsuarioState extends State<_DialogEditarUsuario> {
             }
             if (_rol != widget.usuario.rol) cambios['rol'] = _rol;
             if (_passCtrl.text.isNotEmpty) cambios['password'] = _passCtrl.text;
+            if (_correoCtrl.text.trim() != widget.correo2fa) cambios['correo_2fa'] = _correoCtrl.text.trim();
             Navigator.pop(context, cambios.isEmpty ? null : cambios);
           },
           child: Text('Guardar cambios'),
