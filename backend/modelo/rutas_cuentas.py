@@ -7,7 +7,6 @@ from pydantic import BaseModel
 
 import bloqueo_login
 import db
-import segundo_factor
 
 router = APIRouter(tags=["cuentas"])
 
@@ -39,97 +38,9 @@ def login(datos: LoginIn):
             detail=f"Usuario o contrasena incorrectos. Te {'queda' if n == 1 else 'quedan'} {n} "
                    f"{'intento' if n == 1 else 'intentos'} antes de un bloqueo temporal.")
     bloqueo_login.registrar_exito(datos.username)
-    # HU-24 1310/1330: administrador y cajero siempre, cliente si lo activo -> falta el codigo del correo
-    if segundo_factor.requiere(usuario):
-        reto = segundo_factor.crear_reto(usuario["id"])
-        direccion = segundo_factor.correo_de(usuario["id"], usuario["rol"])
-        if not direccion:
-            return {"requiere_2fa": True, "reto": reto, "falta_correo": True}
-        try:
-            enmascarado = segundo_factor.enviar_codigo(reto)
-        except segundo_factor.ErrorSegundoFactor as e:
-            raise HTTPException(status_code=e.estado, detail=str(e))
-        return {"requiere_2fa": True, "reto": reto, "falta_correo": False, "correo": enmascarado}
     if usuario["rol"] == "cliente":
         usuario["cliente"] = db.obtener_cliente_de_usuario(usuario["id"])
     return usuario
-
-
-def _error_2fa(e: "segundo_factor.ErrorSegundoFactor") -> HTTPException:
-    return HTTPException(status_code=e.estado, detail=str(e))
-
-
-class RetoIn(BaseModel):
-    reto: str
-
-
-class CorreoRetoIn(RetoIn):
-    correo: str
-
-
-class CodigoIn(RetoIn):
-    codigo: str
-
-
-@router.post("/auth/2fa/correo")
-def registrar_correo_2fa(datos: CorreoRetoIn):
-    """Primer inicio de sesion de un administrador/cajero sin correo: lo registra y envia el codigo."""
-    try:
-        return {"correo": segundo_factor.registrar_correo_en_reto(datos.reto, datos.correo)}
-    except segundo_factor.ErrorSegundoFactor as e:
-        raise _error_2fa(e)
-
-
-@router.post("/auth/2fa/reenviar")
-def reenviar_codigo_2fa(datos: RetoIn):
-    try:
-        return {"correo": segundo_factor.enviar_codigo(datos.reto)}
-    except segundo_factor.ErrorSegundoFactor as e:
-        raise _error_2fa(e)
-
-
-@router.post("/auth/2fa/verificar")
-def verificar_codigo_2fa(datos: CodigoIn):
-    """Si el codigo es correcto devuelve el usuario, igual que /auth/login sin segundo factor."""
-    try:
-        return segundo_factor.verificar(datos.reto, datos.codigo)
-    except segundo_factor.ErrorSegundoFactor as e:
-        raise _error_2fa(e)
-
-
-@router.get("/auth/2fa/estado")
-def estado_2fa(usuario_id: int):
-    usuario = segundo_factor.usuario_por_id(usuario_id)
-    if usuario is None:
-        raise HTTPException(status_code=404, detail="Usuario no encontrado.")
-    return segundo_factor.estado(usuario_id, usuario["rol"])
-
-
-class ConfigurarSegundoFactorIn(BaseModel):
-    usuario_id: int
-    password:   str                 # confirma que es el dueño de la cuenta
-    activo:     bool | None = None  # solo clientes
-    correo:     str | None = None
-
-
-@router.put("/auth/2fa/configuracion")
-def configurar_2fa(datos: ConfigurarSegundoFactorIn):
-    """Activa/desactiva el segundo factor (cliente) o cambia el correo (cualquier rol). Pide la contrasena."""
-    usuario = segundo_factor.usuario_por_id(datos.usuario_id)
-    if usuario is None:
-        raise HTTPException(status_code=404, detail="Usuario no encontrado.")
-    segundos = bloqueo_login.segundos_de_bloqueo(usuario["username"])
-    if segundos > 0:
-        raise _bloqueado(segundos)
-    if db.login_usuario(usuario["username"], datos.password) is None:
-        fallo = bloqueo_login.registrar_fallo(usuario["username"])
-        if fallo["bloqueado"]:
-            raise _bloqueado(fallo["segundos"])
-        raise HTTPException(status_code=401, detail="Contrasena incorrecta.")
-    try:
-        return segundo_factor.configurar(datos.usuario_id, usuario["rol"], datos.activo, datos.correo)
-    except segundo_factor.ErrorSegundoFactor as e:
-        raise _error_2fa(e)
 
 
 class CambiarPasswordIn(BaseModel):

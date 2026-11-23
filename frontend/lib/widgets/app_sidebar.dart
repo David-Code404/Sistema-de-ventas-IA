@@ -13,7 +13,6 @@ import '../screens/pedidos_pendientes_screen.dart';
 import '../screens/usuarios_screen.dart';
 import '../theme/app_colors.dart';
 import 'cambiar_password_dialog.dart';
-import 'segundo_factor_dialog.dart';
 import '../theme/theme_controller.dart';
 import '../screens/promociones_screen.dart';
 
@@ -198,12 +197,6 @@ class AppSidebar extends StatelessWidget {
             label: 'Cambiar contraseña',
             active: false,
             onTap: () => mostrarCambiarPassword(context, apiBase: apiBase),
-          ),
-          _NavItem(
-            icon: Icons.verified_user_outlined,
-            label: 'Verificacion en 2 pasos',
-            active: false,
-            onTap: () => mostrarSegundoFactor(context, apiBase: apiBase),
           ),
 
           // Toggle modo claro / oscuro

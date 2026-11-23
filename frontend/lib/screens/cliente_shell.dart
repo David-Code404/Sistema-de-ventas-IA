@@ -7,7 +7,6 @@ import '../theme/app_colors.dart';
 import '../widgets/boton_carrito.dart';
 import '../widgets/boton_modo_tema.dart';
 import '../widgets/cambiar_password_dialog.dart';
-import '../widgets/segundo_factor_dialog.dart';
 import 'catalogo_cliente_screen.dart';
 
 class ClienteShell extends StatefulWidget {
@@ -96,8 +95,6 @@ class _ClienteShellState extends State<ClienteShell>
             onSelected: (opcion) {
               if (opcion == 'password') {
                 mostrarCambiarPassword(context, apiBase: widget.apiBase);
-              } else if (opcion == 'segundo_factor') {
-                mostrarSegundoFactor(context, apiBase: widget.apiBase);
               }
             },
             itemBuilder: (_) => [
@@ -107,14 +104,6 @@ class _ClienteShellState extends State<ClienteShell>
                   Icon(Icons.lock_reset_rounded, size: 18, color: AppColors.textSecondary),
                   SizedBox(width: 10),
                   Text('Cambiar contraseña'),
-                ]),
-              ),
-              PopupMenuItem(
-                value: 'segundo_factor',
-                child: Row(children: [
-                  Icon(Icons.verified_user_outlined, size: 18, color: AppColors.textSecondary),
-                  SizedBox(width: 10),
-                  Text('Verificacion en dos pasos'),
                 ]),
               ),
             ],

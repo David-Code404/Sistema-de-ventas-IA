@@ -1,18 +1,14 @@
 """
 Complemento del CRUD de usuarios (solo administrador). No importa YOLO ni nada de deteccion.
 
-  DELETE /usuarios/{id}            eliminar de verdad (solo si la cuenta no tiene historial)
-  GET    /usuarios/correos-2fa     correo del segundo factor de cada usuario (HU-24)
-  PUT    /usuarios/{id}/correo-2fa registrar, cambiar o quitar ese correo
+  DELETE /usuarios/{id}   eliminar de verdad (solo si la cuenta no tiene historial)
 
 Alta, lista, edicion y activar/desactivar ya existen en deteccionobjeto.py (/usuarios).
 """
 
 from fastapi import APIRouter, Header, HTTPException
-from pydantic import BaseModel
 
 import db
-import segundo_factor
 
 router = APIRouter(tags=["usuarios"])
 
@@ -72,11 +68,6 @@ def eliminar_usuario(usuario_id: int, x_usuario_id: int | None = Header(default=
     try:
         cursor = conexion.cursor()
         try:
-            for tabla in ("codigos_2fa", "segundo_factor_usuario"):
-                try:
-                    cursor.execute(f"DELETE FROM {tabla} WHERE usuario_id = %s", (usuario_id,))
-                except Exception:
-                    pass
             try:
                 cursor.execute("DELETE FROM intentos_login WHERE usuario = %s", (fila["username"].lower(),))
             except Exception:
@@ -90,34 +81,3 @@ def eliminar_usuario(usuario_id: int, x_usuario_id: int | None = Header(default=
     finally:
         conexion.close()
     return {"ok": True, "id": usuario_id}
-
-
-@router.get("/usuarios/correos-2fa")
-def correos_2fa(x_usuario_id: int | None = Header(default=None)):
-    _admin(x_usuario_id)
-    segundo_factor.asegurar_tablas()
-    conexion = db._conexion()
-    try:
-        cursor = conexion.cursor(dictionary=True)
-        cursor.execute("SELECT usuario_id, correo FROM segundo_factor_usuario WHERE correo IS NOT NULL")
-        return {str(f["usuario_id"]): f["correo"] for f in cursor.fetchall()}
-    finally:
-        conexion.close()
-
-
-class CorreoIn(BaseModel):
-    correo: str | None = None      # None o vacio = quitarlo
-
-
-@router.put("/usuarios/{usuario_id}/correo-2fa")
-def fijar_correo_2fa(usuario_id: int, datos: CorreoIn, x_usuario_id: int | None = Header(default=None)):
-    _admin(x_usuario_id)
-    if _una_fila("SELECT id FROM usuarios WHERE id = %s", (usuario_id,)) is None:
-        raise HTTPException(status_code=404, detail="Usuario no encontrado.")
-    texto = (datos.correo or "").strip()
-    try:
-        correo = segundo_factor.validar_correo(texto) if texto else None
-    except segundo_factor.ErrorSegundoFactor as e:
-        raise HTTPException(status_code=e.estado, detail=str(e))
-    segundo_factor.guardar_correo(usuario_id, correo)
-    return {"id": usuario_id, "correo": correo}

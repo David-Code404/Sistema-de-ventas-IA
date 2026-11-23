@@ -11,7 +11,6 @@ import '../models/session.dart';
 import '../screens/login_screen.dart';
 import '../theme/theme_controller.dart';
 import 'cambiar_password_dialog.dart';
-import 'segundo_factor_dialog.dart';
 import '../theme/app_colors.dart';
 import 'app_sidebar.dart';
 
@@ -155,14 +154,6 @@ class _BarraInferior extends StatelessWidget {
               onTap: () {
                 Navigator.pop(ctx);
                 mostrarCambiarPassword(context, apiBase: apiBase);
-              },
-            ),
-            ListTile(
-              leading: Icon(Icons.verified_user_outlined, color: AppColors.textSecondary),
-              title: Text('Verificacion en dos pasos'),
-              onTap: () {
-                Navigator.pop(ctx);
-                mostrarSegundoFactor(context, apiBase: apiBase);
               },
             ),
             ListTile(
