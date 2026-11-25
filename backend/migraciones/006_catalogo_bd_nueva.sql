@@ -41,3 +41,6 @@ INSERT INTO productos (`id`, `nombre`, `precio`, `categoria_id`, `clase_modelo`,
 (25, 'Hilo Dental', 20.00, 10, 'hilo_dental_1795365737', 1, '2026-11-22 16:42:17', '2026-11-22 16:42:17', 20),
 (26, 'Nivea', 15.00, 4, 'nivea_1795442835', 1, '2026-11-23 14:07:15', '2026-11-23 14:07:15', 20)
 ON DUPLICATE KEY UPDATE `nombre`=VALUES(`nombre`), `precio`=VALUES(`precio`), `categoria_id`=VALUES(`categoria_id`), `clase_modelo`=VALUES(`clase_modelo`), `activo`=VALUES(`activo`), `creado_en`=VALUES(`creado_en`), `actualizado_en`=VALUES(`actualizado_en`), `stock`=VALUES(`stock`);
+
+-- Las ofertas viejas de Aiven apuntaban a los productos antiguos: se desactivan (en la BD nueva no hay ofertas activas).
+UPDATE promociones SET activa = 0 WHERE id <> 2;
