@@ -128,7 +128,7 @@ CREATE TABLE `productos` (
   KEY `idx_productos_clase_modelo` (`clase_modelo`),
   KEY `idx_productos_categoria` (`categoria_id`),
   CONSTRAINT `fk_productos_categoria` FOREIGN KEY (`categoria_id`) REFERENCES `categorias` (`id`) ON UPDATE CASCADE
-) ENGINE=InnoDB AUTO_INCREMENT=10 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+) ENGINE=InnoDB AUTO_INCREMENT=19 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
 
 --
@@ -137,7 +137,7 @@ CREATE TABLE `productos` (
 
 LOCK TABLES `productos` WRITE;
 /*!40000 ALTER TABLE `productos` DISABLE KEYS */;
-INSERT INTO `productos` VALUES (1,'churrasco',3.00,2,'churrasco',1,'2026-10-03 20:12:56','2026-10-03 20:12:56',100),(2,'ta_bueno',2.00,1,'ta_bueno',1,'2026-10-03 20:14:29','2026-10-03 20:14:29',100),(3,'chizito',2.00,1,'chizito',1,'2026-10-03 20:20:28','2026-10-04 02:53:40',100),(4,'mostaza',4.00,3,'mostaza',0,'2026-10-03 20:21:38','2026-10-04 02:59:45',100),(6,'mostaza',4.00,3,'mostaza_1791083124',1,'2026-10-04 03:05:24','2026-10-04 03:05:24',100);
+INSERT INTO `productos` VALUES (1,'churrasco',3.00,2,'churrasco',1,'2026-10-04 00:12:56','2026-10-05 04:48:58',143),(2,'ta_bueno',2.00,1,'ta_bueno',1,'2026-10-04 00:14:29','2026-11-22 16:29:36',118),(3,'chizito',2.00,1,'chizito',1,'2026-10-04 00:20:28','2026-11-22 16:29:36',1),(4,'mostaza',4.00,3,'mostaza',0,'2026-10-04 00:21:38','2026-10-04 06:59:45',100),(6,'mostaza',4.00,3,'mostaza_1791083124',1,'2026-10-04 07:05:24','2026-10-05 04:29:24',118),(7,'chipchip',2.00,2,'chipchip_1791204719',1,'2026-10-05 16:51:59','2026-11-22 16:19:42',2),(8,'cocacola',5.00,2,'cocacola_1791205074',0,'2026-10-05 16:57:54','2026-11-20 04:00:47',27),(9,'Artesanas',1.00,2,'artesanas_1795007410',1,'2026-11-18 13:10:10','2026-11-22 16:19:32',100),(10,'Big shark',2.00,2,'big_shark_1795008543',1,'2026-11-18 13:29:03','2026-11-22 16:19:32',100),(11,'Bon o Bon',2.00,2,'bon_o_bon_1795008659',1,'2026-11-18 13:30:59','2026-11-22 16:19:32',100),(12,'Cereal',1.50,2,'cereal_1795008729',1,'2026-11-18 13:32:09','2026-11-22 16:19:42',100),(13,'Chocolitas',1.50,2,'chocolitas_1795008789',1,'2026-11-18 13:33:09','2026-11-22 16:19:42',100),(14,'Galleta de agua',1.50,2,'galleta_de_agua_1795008830',1,'2026-11-18 13:33:50','2026-11-18 13:33:50',100),(15,'Gelatina',1.50,2,'gelatina_1795008965',1,'2026-11-18 13:36:05','2026-11-18 13:36:05',100),(16,'Genio',3.00,2,'genio_1795009086',1,'2026-11-18 13:38:06','2026-11-18 13:38:06',100),(17,'Gomutcho',1.50,2,'gomutcho_1795009158',1,'2026-11-18 13:39:18','2026-11-18 13:39:18',100),(18,'Tita',1.00,2,'tita_1795009363',1,'2026-11-18 13:42:43','2026-11-18 13:42:43',100);
 /*!40000 ALTER TABLE `productos` ENABLE KEYS */;
 UNLOCK TABLES;
 
